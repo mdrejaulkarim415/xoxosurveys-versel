@@ -1,0 +1,338 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER SYSTEM ====================
+
+model User {
+  id              String   @id @default(cuid())
+  userId          Int      @unique  // Auto-incrementing user ID starting from 100
+  email           String   @unique
+  passwordHash    String?
+  name            String?
+  firstname       String?
+  lastname        String?
+  avatar          String?
+  language        String   @default("English (en)")
+  newsletter      String   @default("Yes")
+  balance         Float    @default(0)
+  totalEarned     Float    @default(0)
+  surveysCompleted Int     @default(0)
+  surveyTarget    Int      @default(25)
+  earningRate     Float    @default(0.005)
+  inviteCode      String   @unique
+  invitedBy       String?
+  unclaimedRevenue Float   @default(0)
+  friendsInvited  Int      @default(0)
+  
+  // Auth & verification
+  role            String   @default("user") // "user" | "admin"
+  emailVerified   Boolean  @default(false)
+  emailVerificationToken String? // Token for email verification
+  emailVerificationSentAt DateTime? // When verification email was last sent
+  verificationLevel Int    @default(0) // 0=unverified, 1=email, 2=phone, 3=ID
+  isActive        Boolean  @default(true)
+  isBanned        Boolean  @default(false)
+  banReason       String?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  loginCount      Int      @default(0)
+  
+  // Anti-fraud fields
+  fraudScore      Float    @default(0) // 0-100, higher = more suspicious
+  fraudFlags      String   @default("[]") // JSON array of flag reasons
+  isFlagged       Boolean  @default(false)
+  isVpnBlocked    Boolean  @default(false)
+  deviceFingerprint String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  sessions        Session[]
+  surveyAttempts  SurveyAttempt[]
+  cashouts        Cashout[]
+  activityLogs    ActivityLog[]
+  fraudEvents     FraudEvent[]
+  ips             UserIp[]
+
+  @@index([email])
+  @@index([inviteCode])
+  @@index([role])
+  @@index([fraudScore])
+  @@index([isFlagged])
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  token         String   @unique
+  deviceFingerprint String?
+  ipAddress     String?
+  userAgent     String?
+  country       String?
+  city          String?
+  isVpn         Boolean  @default(false)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+model UserIp {
+  id        String   @id @default(cuid())
+  userId    String
+  ipAddress String
+  country   String?
+  city      String?
+  isVpn     Boolean  @default(false)
+  isProxy   Boolean  @default(false)
+  isTor     Boolean  @default(false)
+  isBlocked Boolean  @default(false)
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @updatedAt
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ipAddress])
+  @@index([ipAddress])
+  @@index([isBlocked])
+}
+
+// ==================== SURVEY SYSTEM ====================
+
+model SurveyWall {
+  id              String   @id @default(cuid())
+  name            String
+  provider        String   // e.g. "cpx-research", "bitlabs", "inbrain", "custom"
+  apiKey          String?
+  apiSecret       String?
+  endpointUrl     String?
+  isActive        Boolean  @default(true)
+  priority        Int      @default(0) // higher = shown first
+  minPayout       Float    @default(0.01)
+  maxPayout       Float    @default(5.0)
+  description     String?
+  config          String   @default("{}") // JSON config for provider-specific settings
+  
+  // Anti-fraud settings per wall
+  requireVerification Int  @default(0)
+  blockVpn        Boolean  @default(true)
+  blockProxy      Boolean  @default(true)
+  minFraudScore   Float    @default(50) // users above this score are blocked
+  cooldownMinutes Int      @default(0) // minimum time between surveys from this wall
+  
+  surveys         Survey[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([provider])
+  @@index([isActive])
+}
+
+model Survey {
+  id              String   @id @default(cuid())
+  wallId          String
+  externalId      String?   // ID from provider
+  title           String
+  description     String?
+  timeMinutes     Int
+  reward          Float
+  rating          Float    @default(5.0)
+  reviews         Int      @default(0)
+  available       Int      @default(1)
+  category        String?
+  country         String?
+  language        String?
+  
+  // Anti-fraud
+  maxCompletions  Int      @default(-1) // -1 = unlimited
+  currentCompletions Int   @default(0)
+  
+  isActive        Boolean  @default(true)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  wall            SurveyWall @relation(fields: [wallId], references: [id], onDelete: Cascade)
+  attempts        SurveyAttempt[]
+
+  @@index([wallId])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+model SurveyAttempt {
+  id              String   @id @default(cuid())
+  userId          String
+  surveyId        String
+  status          String   @default("started") // "started" | "completed" | "disqualified" | "flagged"
+  reward          Float    @default(0)
+  timeSpent       Int      @default(0) // seconds
+  answers         String   @default("{}") // JSON of answers
+  
+  // Anti-fraud
+  ipAddress       String?
+  deviceFingerprint String?
+  isFlagged       Boolean  @default(false)
+  flagReason      String?
+  completionSpeed Float?   // How fast compared to expected time (suspicious if too fast)
+  answerConsistency Float? // Score for answer pattern consistency
+  
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  survey          Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([surveyId])
+  @@index([status])
+  @@index([isFlagged])
+}
+
+// ==================== CASHOUT SYSTEM ====================
+
+model Cashout {
+  id              String   @id @default(cuid())
+  userId          String
+  giftCardType    String   // "binance", "litecoin", "paypal", "amazon", "google-play", etc.
+  amount          Float
+  status          String   @default("pending") // "pending" | "approved" | "processed" | "rejected" | "flagged" | "chargeback"
+  
+  // Anti-fraud
+  ipAddress       String?
+  isFlagged       Boolean  @default(false)
+  flagReason      String?
+  reviewedBy      String?  // admin user id
+  reviewedAt      DateTime?
+  
+  // Chargeback fields
+  isChargeback    Boolean  @default(false)
+  chargebackReason String? // e.g. "Payment reversed", "Fraudulent transaction", "User dispute"
+  chargebackAmount Float?  // Amount that was charged back (may differ from original)
+  chargebackBy    String?  // Admin who marked the chargeback
+  chargebackAt    DateTime?
+  balanceDeducted Boolean  @default(false) // Whether user balance was deducted for this chargeback
+  
+  createdAt       DateTime @default(now())
+  processedAt     DateTime?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([isFlagged])
+  @@index([isChargeback])
+}
+
+// ==================== ANTI-FRAUD SYSTEM ====================
+
+model FraudEvent {
+  id              String   @id @default(cuid())
+  userId          String?
+  eventType       String   // "vpn_detected", "proxy_detected", "duplicate_ip", "fast_completion", 
+                          // "impossible_pattern", "device_mismatch", "multiple_accounts", 
+                          // "suspicious_location", "bot_detected", "answer_inconsistency"
+  severity        String   @default("medium") // "low" | "medium" | "high" | "critical"
+  details         String   @default("{}") // JSON with event-specific data
+  ipAddress       String?
+  deviceFingerprint String?
+  country         String?
+  city            String?
+  isResolved      Boolean  @default(false)
+  resolvedBy      String?  // admin user id
+  resolution      String?
+  
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventType])
+  @@index([severity])
+  @@index([isResolved])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id              String   @id @default(cuid())
+  userId          String
+  action          String   // "login", "survey_start", "survey_complete", "cashout_request", 
+                          // "password_change", "email_change", "profile_update"
+  details         String   @default("{}") // JSON
+  ipAddress       String?
+  userAgent       String?
+  deviceFingerprint String?
+  country         String?
+  city            String?
+  
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model BlockedIp {
+  id              String   @id @default(cuid())
+  ipAddress       String   @unique
+  reason          String
+  blockedBy       String?  // admin user id
+  isAutoBlocked   Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+
+  @@index([ipAddress])
+}
+
+model BlockedDevice {
+  id              String   @id @default(cuid())
+  fingerprint     String   @unique
+  reason          String
+  blockedBy       String?  // admin user id
+  isAutoBlocked   Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+
+  @@index([fingerprint])
+}
+
+// ==================== ADMIN SYSTEM ====================
+
+model AdminSettings {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String
+  description     String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([key])
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  adminId         String
+  action          String
+  target          String?  // what was affected (user id, survey id, etc.)
+  details         String   @default("{}") // JSON
+  ipAddress       String?
+  
+  createdAt       DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
