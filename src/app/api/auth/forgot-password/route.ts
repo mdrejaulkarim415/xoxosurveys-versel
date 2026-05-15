@@ -94,14 +94,17 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://xoxosurveys.com'
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`
 
-    // Send the reset email (non-blocking)
-    sendPasswordResetEmail(email, resetUrl).then((sent) => {
-      if (!sent) {
-        console.error(`[Forgot Password] Failed to send reset email to ${email}`)
-      }
-    }).catch((err) => {
-      console.error('[Forgot Password] Email send error:', err)
-    })
+    // Send the reset email (blocking — so we can see if it actually fails)
+    const emailSent = await sendPasswordResetEmail(email, resetUrl)
+    if (!emailSent) {
+      console.error(`[Forgot Password] Email delivery failed for ${email}`)
+      return NextResponse.json(
+        { error: 'Failed to send reset email. Please check your email address and try again.' },
+        { status: 500 }
+      )
+    }
+
+    console.log(`[Forgot Password] Reset email sent successfully to ${email}`)
 
     return NextResponse.json({
       success: true,
