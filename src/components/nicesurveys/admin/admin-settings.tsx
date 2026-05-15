@@ -46,6 +46,9 @@ interface SettingsState {
   featuredOfferId: number
   featuredOfferTime: string
   featuredOfferPayout: string
+  featuredOfferApiKey: string
+  featuredOfferApiUrl: string
+  featuredOfferApiSecret: string
   emailTemplateCashoutApproved: string
   emailTemplateCashoutRejected: string
   emailTemplateFraudWarning: string
@@ -74,6 +77,9 @@ const defaultSettings: SettingsState = {
   featuredOfferId: 56443,
   featuredOfferTime: '5-20 Min',
   featuredOfferPayout: '',
+  featuredOfferApiKey: '',
+  featuredOfferApiUrl: '',
+  featuredOfferApiSecret: '',
   emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
@@ -305,6 +311,52 @@ export function AdminSettings() {
                           className="h-9 text-[13px] mt-1"
                         />
                         <p className="text-[10px] text-[#999999] mt-0.5">e.g. Up to $5.00</p>
+                      </div>
+                    </div>
+
+                    {/* API Configuration */}
+                    <div className="border-t border-[#E5E7EB] pt-3 mt-3">
+                      <h5 className="text-[12px] font-bold text-[#1A1A1A] flex items-center gap-1.5 mb-2">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        API Configuration
+                      </h5>
+                      <div>
+                        <Label className="text-[12px] font-medium">API URL</Label>
+                        <Input
+                          value={settings.featuredOfferApiUrl}
+                          onChange={(e) => updateSetting('featuredOfferApiUrl', e.target.value)}
+                          placeholder="https://revtoo.com/api/offers/"
+                          className="h-9 text-[13px] mt-1"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">Leave empty to use default RevToo URL</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <Label className="text-[12px] font-medium">API Key</Label>
+                          <Input
+                            value={settings.featuredOfferApiKey}
+                            onChange={(e) => updateSetting('featuredOfferApiKey', e.target.value)}
+                            placeholder="Enter API key"
+                            className="h-9 text-[13px] mt-1"
+                            type="password"
+                          />
+                          <p className="text-[10px] text-[#999999] mt-0.5">RevToo API key</p>
+                        </div>
+                        <div>
+                          <Label className="text-[12px] font-medium">API Secret</Label>
+                          <Input
+                            value={settings.featuredOfferApiSecret}
+                            onChange={(e) => updateSetting('featuredOfferApiSecret', e.target.value)}
+                            placeholder="Enter API secret"
+                            className="h-9 text-[13px] mt-1"
+                            type="password"
+                          />
+                          <p className="text-[10px] text-[#999999] mt-0.5">RevToo API secret (optional)</p>
+                        </div>
                       </div>
                     </div>
                   </div>

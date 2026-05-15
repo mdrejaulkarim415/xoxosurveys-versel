@@ -7,8 +7,7 @@ const DEFAULT_TARGET_OFFER_ID = 56443
 
 /**
  * Fetch the specific Revtoo survey offer and generate redirect URL for the user
- * Checks featuredOfferEnabled setting + reads API key from wall config or defaults
- * Returns customization overrides from admin settings
+ * Reads all Featured Offer config from admin settings (API key, URL, customization)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -28,6 +27,9 @@ export async function GET(request: NextRequest) {
       'featuredOfferId',
       'featuredOfferTime',
       'featuredOfferPayout',
+      'featuredOfferApiKey',
+      'featuredOfferApiUrl',
+      'featuredOfferApiSecret',
     ]
     const settingsRows = await db.adminSettings.findMany({
       where: { key: { in: settingKeys } },
@@ -47,31 +49,37 @@ export async function GET(request: NextRequest) {
       ? parseInt(settingsMap.featuredOfferId, 10)
       : DEFAULT_TARGET_OFFER_ID
 
-    // Try to get RevToo wall config for API key/URL (optional, falls back to defaults)
-    const revtooWall = await db.surveyWall.findFirst({
-      where: { provider: 'revtoo' },
-    })
+    // API config: settings > SurveyWall > defaults (priority order)
+    let apiKey = settingsMap.featuredOfferApiKey || ''
+    let apiUrl = settingsMap.featuredOfferApiUrl || ''
 
-    // Use API key from wall config or fallback to default
-    const apiKey = revtooWall?.apiKey || DEFAULT_REVTOO_API_KEY
-    const apiUrl = revtooWall?.endpointUrl
-      ? revtooWall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
-      : DEFAULT_REVTOO_API_URL
+    // If no custom API settings, try SurveyWall config
+    if (!apiKey || !apiUrl) {
+      const revtooWall = await db.surveyWall.findFirst({
+        where: { provider: 'revtoo' },
+      })
+      if (!apiKey) apiKey = revtooWall?.apiKey || DEFAULT_REVTOO_API_KEY
+      if (!apiUrl) {
+        apiUrl = revtooWall?.endpointUrl
+          ? revtooWall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
+          : DEFAULT_REVTOO_API_URL
+      }
+    }
 
-    // Fetch offers from Revtoo API
+    // Fetch offers from RevToo API
     const response = await fetch(`${apiUrl}?api_key=${apiKey}`, {
       next: { revalidate: 300 }, // Cache for 5 minutes
     })
 
     if (!response.ok) {
       console.error('[Revtoo Offer] API error:', response.status)
-      return NextResponse.json({ error: 'Failed to fetch from Revtoo API' }, { status: 502 })
+      return NextResponse.json({ error: 'Failed to fetch from RevToo API' }, { status: 502 })
     }
 
     const data = await response.json()
 
     if (!data.success) {
-      return NextResponse.json({ error: 'Revtoo API returned error' }, { status: 502 })
+      return NextResponse.json({ error: 'RevToo API returned error' }, { status: 502 })
     }
 
     // Find the specific offer
