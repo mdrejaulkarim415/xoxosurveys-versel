@@ -7,7 +7,7 @@ const DEFAULT_TARGET_OFFER_ID = 56443
 
 /**
  * Fetch the specific Revtoo survey offer and generate redirect URL for the user
- * Checks SurveyWall.isActive from database + reads API key from wall config
+ * Checks featuredOfferEnabled setting + reads API key from wall config or defaults
  */
 export async function GET(request: NextRequest) {
   try {
@@ -18,25 +18,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
     }
 
-    // Check if RevToo wall exists and is active
+    // Check if Featured Offer is enabled in admin settings
+    const featuredSetting = await db.adminSettings.findUnique({
+      where: { key: 'featuredOfferEnabled' },
+    })
+    const featuredEnabled = featuredSetting ? featuredSetting.value === 'true' : true // default true
+
+    if (!featuredEnabled) {
+      return NextResponse.json({ error: 'Featured offer is currently disabled', disabled: true }, { status: 403 })
+    }
+
+    // Try to get RevToo wall config for API key/URL (optional, falls back to defaults)
     const revtooWall = await db.surveyWall.findFirst({
       where: { provider: 'revtoo' },
     })
 
-    if (!revtooWall || !revtooWall.isActive) {
-      return NextResponse.json({ error: 'RevToo surveys are currently disabled', disabled: true }, { status: 403 })
-    }
-
     // Use API key from wall config or fallback to default
-    const apiKey = revtooWall.apiKey || DEFAULT_REVTOO_API_KEY
-    const apiUrl = revtooWall.endpointUrl
+    const apiKey = revtooWall?.apiKey || DEFAULT_REVTOO_API_KEY
+    const apiUrl = revtooWall?.endpointUrl
       ? revtooWall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
       : DEFAULT_REVTOO_API_URL
 
     // Parse config for target offer ID
     let targetOfferId = DEFAULT_TARGET_OFFER_ID
     try {
-      const config = JSON.parse(revtooWall.config || '{}')
+      const config = JSON.parse(revtooWall?.config || '{}')
       if (config.targetOfferId) targetOfferId = config.targetOfferId
     } catch {}
 
