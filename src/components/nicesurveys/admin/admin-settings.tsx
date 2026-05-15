@@ -49,6 +49,7 @@ interface SettingsState {
   featuredOfferApiKey: string
   featuredOfferApiUrl: string
   featuredOfferApiSecret: string
+  showProvidersSection: boolean
   emailTemplateCashoutApproved: string
   emailTemplateCashoutRejected: string
   emailTemplateFraudWarning: string
@@ -80,6 +81,7 @@ const defaultSettings: SettingsState = {
   featuredOfferApiKey: '',
   featuredOfferApiUrl: '',
   featuredOfferApiSecret: '',
+  showProvidersSection: true,
   emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
@@ -361,6 +363,28 @@ export function AdminSettings() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Survey Provider Section Visibility */}
+              <div className="border-t border-[#E5E7EB] pt-5">
+                <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2 mb-3">
+                  <LayoutGrid size={14} className="text-[#0FBCC0]" /> Survey Providers Section
+                </h4>
+                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
+                  <div>
+                    <p className="text-[13px] font-medium text-[#065F46]">Show Survey Providers Section</p>
+                    <p className="text-[11px] text-[#047857]">
+                      {settings.showProvidersSection
+                        ? 'Survey Providers section is visible to users on the dashboard'
+                        : 'Survey Providers section is hidden — only Individual Surveys will show'
+                      }
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.showProvidersSection}
+                    onCheckedChange={(v) => updateSetting('showProvidersSection', v)}
+                  />
+                </div>
               </div>
 
               {/* Survey Provider Management Note */}

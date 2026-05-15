@@ -2,11 +2,404 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
 /**
- * Fetch individual survey offers from all active provider APIs.
- * When admin adds a provider (e.g. BitLabs, CPX Research), their surveys
- * automatically appear in the "Individual Surveys" section.
- * Each wall's config can have showIndividualOffers=true/false.
+ * Fetch offers from ALL active provider APIs and return them as
+ * normalized Individual Survey items.
+ *
+ * This is the core of the auto-sync system:
+ *   - When a Survey Provider (RevToo, CPX, BitLabs, Inbrain, Custom)
+ *     is added and active, its offers automatically appear in
+ *     Individual Surveys.
+ *   - No manual sync needed — offers are fetched in real-time with
+ *     short caching (5 min).
+ *   - API keys are NEVER sent to the frontend; redirect URLs go
+ *     through a server-side proxy.
  */
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+/** Remove API-key-like strings (20+ consecutive alphanumeric chars) from text */
+function sanitizeApiText(text: string | null | undefined): string {
+  if (!text) return ''
+  const cleaned = text.replace(/\b[a-z0-9]{20,}\b/gi, '').trim()
+  return cleaned.replace(/\s{2,}/g, ' ').replace(/^\s*[,\-–—]\s*/, '').replace(/\s*[,\-–—]\s*$/, '').trim()
+}
+
+interface NormalizedOffer {
+  id: string            // composite: provider-externalId
+  externalId: string
+  title: string
+  description: string
+  timeMinutes: number
+  reward: number
+  rating: number
+  category: string
+  country: string
+  provider: string
+  providerName: string
+  wallId: string
+  redirectUrl: string   // always a SAFE proxy URL — never contains API key
+}
+
+// ─── Provider Fetchers ────────────────────────────────────────────────
+
+/**
+ * Fetch offers from RevToo API.
+ * Uses the same pattern as revtoo-offer/route.ts but fetches ALL offers.
+ */
+async function fetchRevTooOffers(
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  userId: string,
+  origin: string,
+): Promise<NormalizedOffer[]> {
+  const DEFAULT_API_KEY = '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
+  const DEFAULT_API_URL = 'https://revtoo.com/api/offers/'
+
+  // Check admin settings for custom API config
+  let apiKey = ''
+  let apiUrl = ''
+  try {
+    const settingKeys = ['featuredOfferApiKey', 'featuredOfferApiUrl']
+    const settingsRows = await db.adminSettings.findMany({
+      where: { key: { in: settingKeys } },
+    })
+    const settingsMap: Record<string, string> = {}
+    settingsRows.forEach((s) => { settingsMap[s.key] = s.value })
+    apiKey = settingsMap.featuredOfferApiKey || ''
+    apiUrl = settingsMap.featuredOfferApiUrl || ''
+  } catch { /* ignore */ }
+
+  if (!apiKey) apiKey = wall.apiKey || DEFAULT_API_KEY
+  if (!apiUrl) {
+    apiUrl = wall.endpointUrl
+      ? wall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
+      : DEFAULT_API_URL
+  }
+
+  try {
+    const response = await fetch(`${apiUrl}?api_key=${apiKey}`, {
+      next: { revalidate: 300 }, // cache 5 min
+    })
+    if (!response.ok) return []
+
+    const data = await response.json()
+    if (!data.success || !Array.isArray(data.offers)) return []
+
+    return data.offers
+      .filter((offer: { status?: string }) => !offer.status || offer.status === 'active' || offer.status === '1')
+      .map((offer: {
+        id: number | string
+        name?: string
+        title?: string
+        description?: string
+        payout?: string | number
+        reward?: string | number
+        category?: string
+        countries?: string[]
+        time?: string | number
+        duration?: string | number
+        loa?: string | number
+      }) => {
+        const payoutValue = parseFloat(String(offer.payout || offer.reward || '0')) || 0
+        const rewardValue = payoutValue * 0.7  // 70% to user
+        const timeMin = parseInt(String(offer.time || offer.duration || offer.loa || '10')) || 10
+
+        return {
+          id: `revtoo-${offer.id}`,
+          externalId: String(offer.id),
+          title: sanitizeApiText(offer.name || offer.title) || 'RevToo Survey',
+          description: sanitizeApiText(offer.description) || 'Complete this survey to earn rewards',
+          timeMinutes: timeMin,
+          reward: Math.round(rewardValue * 100) / 100,
+          rating: 4.5,
+          category: offer.category || 'General',
+          country: Array.isArray(offer.countries) ? offer.countries.join(', ') : 'All',
+          provider: 'revtoo',
+          providerName: wall.name,
+          wallId: wall.id,
+          redirectUrl: `${origin}/api/surveys/revtoo-redirect?user_id=${encodeURIComponent(userId)}`,
+        }
+      })
+  } catch (error) {
+    console.error('[Provider Offers] RevToo fetch error:', error)
+    return []
+  }
+}
+
+/**
+ * Fetch offers from CPX Research API.
+ * CPX Research API: https://api.cpx-research.com/v1/surveys?api_key=XXX&user_id=XXX
+ */
+async function fetchCpxOffers(
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  userId: string,
+  origin: string,
+): Promise<NormalizedOffer[]> {
+  if (!wall.apiKey || !wall.endpointUrl) return []
+
+  try {
+    const url = `${wall.endpointUrl}${wall.endpointUrl.includes('?') ? '&' : '?'}api_key=${wall.apiKey}&user_id=${userId}`
+    const response = await fetch(url, {
+      next: { revalidate: 300 },
+    })
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const surveys = data.surveys || data.data || data.offers || []
+    if (!Array.isArray(surveys)) return []
+
+    return surveys.map((survey: {
+      id?: number | string
+      survey_id?: number | string
+      name?: string
+      title?: string
+      description?: string
+      payout?: string | number
+      cpi?: string | number
+      value?: string | number
+      category?: string
+      country?: string
+      country_code?: string
+      time?: string | number
+      duration?: string | number
+      loa?: string | number
+      rating?: number
+    }) => {
+      const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
+      const rewardValue = payoutValue * 0.7
+      const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
+      const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
+
+      // Generate a safe proxy redirect URL for CPX
+      const safeRedirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(externalId)}`
+
+      return {
+        id: `cpx-${externalId}`,
+        externalId,
+        title: sanitizeApiText(survey.name || survey.title) || 'CPX Research Survey',
+        description: sanitizeApiText(survey.description) || 'Complete this survey to earn rewards',
+        timeMinutes: timeMin,
+        reward: Math.round(rewardValue * 100) / 100,
+        rating: survey.rating || 4.0,
+        category: survey.category || 'General',
+        country: survey.country || survey.country_code || 'All',
+        provider: 'cpx-research',
+        providerName: wall.name,
+        wallId: wall.id,
+        redirectUrl: safeRedirectUrl,
+      }
+    })
+  } catch (error) {
+    console.error('[Provider Offers] CPX fetch error:', error)
+    return []
+  }
+}
+
+/**
+ * Fetch offers from BitLabs API.
+ * BitLabs API: https://api.bitlabs.com/v1/surveys?api_key=XXX&uid=XXX
+ */
+async function fetchBitlabsOffers(
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  userId: string,
+  origin: string,
+): Promise<NormalizedOffer[]> {
+  if (!wall.apiKey || !wall.endpointUrl) return []
+
+  try {
+    const url = `${wall.endpointUrl}${wall.endpointUrl.includes('?') ? '&' : '?'}api_key=${wall.apiKey}&uid=${userId}`
+    const response = await fetch(url, {
+      next: { revalidate: 300 },
+    })
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const surveys = data.surveys || data.data || data.offers || []
+    if (!Array.isArray(surveys)) return []
+
+    return surveys.map((survey: {
+      id?: number | string
+      survey_id?: number | string
+      name?: string
+      title?: string
+      description?: string
+      payout?: string | number
+      cpi?: string | number
+      value?: string | number
+      category?: string
+      country?: string
+      country_code?: string
+      time?: string | number
+      duration?: string | number
+      loa?: string | number
+      rating?: number
+    }) => {
+      const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
+      const rewardValue = payoutValue * 0.7
+      const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
+      const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
+
+      const safeRedirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(externalId)}`
+
+      return {
+        id: `bitlabs-${externalId}`,
+        externalId,
+        title: sanitizeApiText(survey.name || survey.title) || 'BitLabs Survey',
+        description: sanitizeApiText(survey.description) || 'Complete this survey to earn rewards',
+        timeMinutes: timeMin,
+        reward: Math.round(rewardValue * 100) / 100,
+        rating: survey.rating || 4.2,
+        category: survey.category || 'General',
+        country: survey.country || survey.country_code || 'All',
+        provider: 'bitlabs',
+        providerName: wall.name,
+        wallId: wall.id,
+        redirectUrl: safeRedirectUrl,
+      }
+    })
+  } catch (error) {
+    console.error('[Provider Offers] BitLabs fetch error:', error)
+    return []
+  }
+}
+
+/**
+ * Fetch offers from Inbrain API.
+ * Inbrain API: https://api.inbrain.ai/v1/surveys?appId=XXX&userId=XXX
+ */
+async function fetchInbrainOffers(
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  userId: string,
+  origin: string,
+): Promise<NormalizedOffer[]> {
+  if (!wall.apiKey || !wall.endpointUrl) return []
+
+  try {
+    const url = `${wall.endpointUrl}${wall.endpointUrl.includes('?') ? '&' : '?'}appId=${wall.apiKey}&userId=${userId}`
+    const response = await fetch(url, {
+      next: { revalidate: 300 },
+    })
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const surveys = data.surveys || data.data || data.offers || []
+    if (!Array.isArray(surveys)) return []
+
+    return surveys.map((survey: {
+      id?: number | string
+      survey_id?: number | string
+      name?: string
+      title?: string
+      description?: string
+      payout?: string | number
+      cpi?: string | number
+      value?: string | number
+      category?: string
+      country?: string
+      country_code?: string
+      time?: string | number
+      duration?: string | number
+      loa?: string | number
+      rating?: number
+    }) => {
+      const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
+      const rewardValue = payoutValue * 0.7
+      const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
+      const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
+
+      const safeRedirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(externalId)}`
+
+      return {
+        id: `inbrain-${externalId}`,
+        externalId,
+        title: sanitizeApiText(survey.name || survey.title) || 'Inbrain Survey',
+        description: sanitizeApiText(survey.description) || 'Complete this survey to earn rewards',
+        timeMinutes: timeMin,
+        reward: Math.round(rewardValue * 100) / 100,
+        rating: survey.rating || 4.3,
+        category: survey.category || 'General',
+        country: survey.country || survey.country_code || 'All',
+        provider: 'inbrain',
+        providerName: wall.name,
+        wallId: wall.id,
+        redirectUrl: safeRedirectUrl,
+      }
+    })
+  } catch (error) {
+    console.error('[Provider Offers] Inbrain fetch error:', error)
+    return []
+  }
+}
+
+/**
+ * Fetch offers from Custom provider (generic).
+ * Custom provider: just uses the endpointUrl + user_id
+ */
+async function fetchCustomOffers(
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  userId: string,
+  origin: string,
+): Promise<NormalizedOffer[]> {
+  if (!wall.endpointUrl) return []
+
+  try {
+    const sep = wall.endpointUrl.includes('?') ? '&' : '?'
+    const url = `${wall.endpointUrl}${sep}user_id=${userId}`
+    const response = await fetch(url, {
+      next: { revalidate: 300 },
+    })
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const surveys = data.surveys || data.data || data.offers || []
+    if (!Array.isArray(surveys)) return []
+
+    return surveys.map((survey: {
+      id?: number | string
+      survey_id?: number | string
+      name?: string
+      title?: string
+      description?: string
+      payout?: string | number
+      cpi?: string | number
+      value?: string | number
+      category?: string
+      country?: string
+      time?: string | number
+      duration?: string | number
+      loa?: string | number
+      rating?: number
+    }) => {
+      const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
+      const rewardValue = payoutValue * 0.7
+      const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
+      const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
+
+      const safeRedirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(externalId)}`
+
+      return {
+        id: `custom-${externalId}`,
+        externalId,
+        title: sanitizeApiText(survey.name || survey.title) || `${wall.name} Survey`,
+        description: sanitizeApiText(survey.description) || 'Complete this survey to earn rewards',
+        timeMinutes: timeMin,
+        reward: Math.round(rewardValue * 100) / 100,
+        rating: survey.rating || 4.0,
+        category: survey.category || 'General',
+        country: survey.country || 'All',
+        provider: 'custom',
+        providerName: wall.name,
+        wallId: wall.id,
+        redirectUrl: safeRedirectUrl,
+      }
+    })
+  } catch (error) {
+    console.error('[Provider Offers] Custom fetch error:', error)
+    return []
+  }
+}
+
+// ─── Main Handler ─────────────────────────────────────────────────────
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -25,191 +418,154 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User is banned' }, { status: 403 })
     }
 
-    // Get all active walls that have showIndividualOffers enabled
+    // Get all active survey walls
     const walls = await db.surveyWall.findMany({
       where: {
         isActive: true,
         minFraudScore: { gte: user.fraudScore },
       },
       orderBy: { priority: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        apiKey: true,
+        apiSecret: true,
+        endpointUrl: true,
+      },
     })
-
-    const allOffers: Array<{
-      id: string
-      title: string
-      description: string | null
-      timeMinutes: number
-      reward: number
-      rating: number
-      reviews: number
-      available: number
-      category: string | null
-      country: string | null
-      language: string | null
-      wall: { id: string; name: string; provider: string }
-      redirectUrl: string
-    }> = []
 
     const origin = new URL(request.url).origin
 
-    // Fetch offers from each provider
-    await Promise.allSettled(
-      walls.map(async (wall) => {
-        // Check if this wall should show individual offers (default: true for non-revtoo)
-        try {
-          const config = JSON.parse(wall.config || '{}')
-          if (config.showIndividualOffers === false) return
-        } catch {
-          // If config parse fails, show offers by default
-        }
+    // Fetch offers from each provider in parallel
+    const fetchPromises = walls.map(async (wall) => {
+      switch (wall.provider) {
+        case 'revtoo':
+          return fetchRevTooOffers(wall, userId, origin)
+        case 'cpx-research':
+          return fetchCpxOffers(wall, userId, origin)
+        case 'bitlabs':
+          return fetchBitlabsOffers(wall, userId, origin)
+        case 'inbrain':
+          return fetchInbrainOffers(wall, userId, origin)
+        case 'custom':
+        default:
+          return fetchCustomOffers(wall, userId, origin)
+      }
+    })
 
-        try {
-          switch (wall.provider) {
-            case 'revtoo': {
-              // RevToo: fetch offers from their API
-              const apiKey = wall.apiKey || '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
-              const apiUrl = wall.endpointUrl
-                ? wall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
-                : 'https://revtoo.com/api/offers/'
+    const results = await Promise.allSettled(fetchPromises)
 
-              const response = await fetch(`${apiUrl}?api_key=${apiKey}`, {
-                next: { revalidate: 300 },
-              })
+    // Flatten all successful results into one array
+    const allOffers: NormalizedOffer[] = []
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        allOffers.push(...result.value)
+      }
+    })
 
-              if (response.ok) {
-                const data = await response.json()
-                if (data.success && data.offers) {
-                  const offers = data.offers.slice(0, 20) // Limit to 20 offers
-                  for (const offer of offers) {
-                    // Skip the featured offer (handled separately)
-                    const redirectUrl = offer.url ? offer.url.replace('[USER_ID]', userId) : ''
-                    allOffers.push({
-                      id: `revtoo-${offer.id}`,
-                      title: offer.title || 'RevToo Survey',
-                      description: offer.description || null,
-                      timeMinutes: 10,
-                      reward: parseFloat(offer.payout || '0') * 0.7,
-                      rating: 4.0,
-                      reviews: offer.score || 0,
-                      available: 1,
-                      category: offer.category || null,
-                      country: offer.countries?.[0] || null,
-                      language: null,
-                      wall: { id: wall.id, name: wall.name, provider: wall.provider },
-                      redirectUrl,
-                    })
-                  }
-                }
-              }
-              break
-            }
-
-            case 'cpx-research': {
-              // CPX Research: construct entry URL as the redirect
-              if (wall.endpointUrl && wall.apiKey) {
-                const redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&user_id=${userId}`
-                allOffers.push({
-                  id: `cpx-${wall.id}`,
-                  title: `${wall.name} Surveys`,
-                  description: wall.description || 'Complete surveys from CPX Research to earn rewards',
-                  timeMinutes: 15,
-                  reward: wall.maxPayout * 0.7,
-                  rating: 4.2,
-                  reviews: 150,
-                  available: 5,
-                  category: 'General',
-                  country: null,
-                  language: null,
-                  wall: { id: wall.id, name: wall.name, provider: wall.provider },
-                  redirectUrl,
-                })
-              }
-              break
-            }
-
-            case 'bitlabs': {
-              // BitLabs: construct entry URL
-              if (wall.endpointUrl && wall.apiKey) {
-                const redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&uid=${userId}`
-                allOffers.push({
-                  id: `bitlabs-${wall.id}`,
-                  title: `${wall.name} Surveys`,
-                  description: wall.description || 'Complete surveys from BitLabs to earn rewards',
-                  timeMinutes: 12,
-                  reward: wall.maxPayout * 0.7,
-                  rating: 4.1,
-                  reviews: 120,
-                  available: 4,
-                  category: 'General',
-                  country: null,
-                  language: null,
-                  wall: { id: wall.id, name: wall.name, provider: wall.provider },
-                  redirectUrl,
-                })
-              }
-              break
-            }
-
-            case 'inbrain': {
-              // Inbrain: construct entry URL
-              if (wall.endpointUrl && wall.apiKey) {
-                const redirectUrl = `${wall.endpointUrl}?appId=${wall.apiKey}&userId=${userId}`
-                allOffers.push({
-                  id: `inbrain-${wall.id}`,
-                  title: `${wall.name} Surveys`,
-                  description: wall.description || 'Complete surveys from Inbrain to earn rewards',
-                  timeMinutes: 10,
-                  reward: wall.maxPayout * 0.7,
-                  rating: 3.9,
-                  reviews: 80,
-                  available: 3,
-                  category: 'General',
-                  country: null,
-                  language: null,
-                  wall: { id: wall.id, name: wall.name, provider: wall.provider },
-                  redirectUrl,
-                })
-              }
-              break
-            }
-
-            case 'custom':
-            default: {
-              // Custom: just link to endpoint
-              if (wall.endpointUrl) {
-                const sep = wall.endpointUrl.includes('?') ? '&' : '?'
-                const redirectUrl = `${wall.endpointUrl}${sep}user_id=${userId}`
-                allOffers.push({
-                  id: `custom-${wall.id}`,
-                  title: `${wall.name} Surveys`,
-                  description: wall.description || 'Complete surveys to earn rewards',
-                  timeMinutes: 10,
-                  reward: wall.maxPayout * 0.7,
-                  rating: 4.0,
-                  reviews: 50,
-                  available: 2,
-                  category: 'General',
-                  country: null,
-                  language: null,
-                  wall: { id: wall.id, name: wall.name, provider: wall.provider },
-                  redirectUrl,
-                })
-              }
-              break
-            }
-          }
-        } catch (err) {
-          console.error(`[Provider Offers] Error fetching from ${wall.provider}:`, err)
-        }
-      })
-    )
-
-    // Sort by reward descending
+    // Sort by reward (highest first)
     allOffers.sort((a, b) => b.reward - a.reward)
 
-    return NextResponse.json(allOffers)
+    // Also fetch DB-based individual surveys (manually created)
+    const dbSurveys = await db.survey.findMany({
+      where: {
+        isActive: true,
+        wall: { isActive: true, minFraudScore: { gte: user.fraudScore } },
+      },
+      orderBy: { reward: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        timeMinutes: true,
+        reward: true,
+        rating: true,
+        reviews: true,
+        available: true,
+        category: true,
+        country: true,
+        wall: {
+          select: {
+            id: true,
+            name: true,
+            provider: true,
+            endpointUrl: true,
+            apiKey: true,
+          },
+        },
+      },
+    })
+
+    // Convert DB surveys to same normalized format
+    const normalizedDbSurveys: NormalizedOffer[] = dbSurveys.map((survey) => {
+      let redirectUrl = ''
+      const w = survey.wall
+
+      switch (w.provider) {
+        case 'revtoo':
+          redirectUrl = `${origin}/api/surveys/revtoo-redirect?user_id=${encodeURIComponent(userId)}`
+          break
+        case 'cpx-research':
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${w.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(survey.id)}`
+          break
+        case 'bitlabs':
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${w.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(survey.id)}`
+          break
+        case 'inbrain':
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${w.id}&user_id=${encodeURIComponent(userId)}&external_id=${encodeURIComponent(survey.id)}`
+          break
+        default:
+          if (w.endpointUrl) {
+            const sep = w.endpointUrl.includes('?') ? '&' : '?'
+            redirectUrl = `${w.endpointUrl}${sep}user_id=${userId}`
+          }
+          break
+      }
+
+      return {
+        id: survey.id,
+        externalId: survey.id,
+        title: survey.title,
+        description: survey.description || '',
+        timeMinutes: survey.timeMinutes,
+        reward: survey.reward,
+        rating: survey.rating,
+        category: survey.category || 'General',
+        country: survey.country || 'All',
+        provider: w.provider,
+        providerName: w.name,
+        wallId: w.id,
+        redirectUrl,
+        isDbSurvey: true,
+        reviews: survey.reviews,
+        available: survey.available,
+      } as NormalizedOffer & { isDbSurvey?: boolean; reviews?: number; available?: number }
+    })
+
+    // Merge API offers + DB surveys, deduplicate by id
+    const seenIds = new Set<string>()
+    const merged: (NormalizedOffer & { isDbSurvey?: boolean; reviews?: number; available?: number })[] = []
+
+    // DB surveys first (manually curated, higher priority)
+    for (const survey of normalizedDbSurveys) {
+      if (!seenIds.has(survey.id)) {
+        seenIds.add(survey.id)
+        merged.push(survey)
+      }
+    }
+
+    // Then API offers (auto-synced)
+    for (const offer of allOffers) {
+      if (!seenIds.has(offer.id)) {
+        seenIds.add(offer.id)
+        merged.push({ ...offer, isDbSurvey: false })
+      }
+    }
+
+    return NextResponse.json(merged)
   } catch (error) {
     console.error('[Provider Offers] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch provider offers' }, { status: 500 })
   }
 }
