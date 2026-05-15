@@ -61,6 +61,7 @@ interface SurveyWall {
   revenue: number
   userRevenuePercent: number
   showProviderCard: boolean
+  showInIndividualSurveys: boolean
   createdAt: string
 }
 
@@ -80,7 +81,8 @@ const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'r
   minFraudScore: 50,
   cooldownMinutes: 5,
   userRevenuePercent: 0, // 0 = use global default
-  showProviderCard: true, // Show in Individual Surveys by default
+  showProviderCard: true, // Show in Survey Providers section by default
+  showInIndividualSurveys: true, // Show in Individual Surveys by default
 }
 
 export function AdminSurveyWalls() {
@@ -138,6 +140,7 @@ export function AdminSurveyWalls() {
       cooldownMinutes: wall.cooldownMinutes,
       userRevenuePercent: wall.userRevenuePercent || 0,
       showProviderCard: wall.showProviderCard ?? true,
+      showInIndividualSurveys: wall.showInIndividualSurveys ?? true,
     })
     setEditWall(wall)
     setShowForm(true)
@@ -196,6 +199,10 @@ export function AdminSurveyWalls() {
 
   const toggleShowProviderCard = async (wall: SurveyWall) => {
     await quickSaveCard(wall, { showProviderCard: !wall.showProviderCard })
+  }
+
+  const toggleShowInIndividualSurveys = async (wall: SurveyWall) => {
+    await quickSaveCard(wall, { showInIndividualSurveys: !wall.showInIndividualSurveys })
   }
 
   const deleteWall = async (id: string) => {
@@ -322,7 +329,7 @@ export function AdminSurveyWalls() {
                   <span className="font-medium text-[#1A1A1A]">{wall.minFraudScore}/100</span>
                 </div>
 
-                {/* ===== NEW: Show Provider Card Toggle ===== */}
+                {/* ===== Toggle 1: Show in Survey Providers Section ===== */}
                 <div className="flex items-center justify-between p-2.5 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
                   <div className="flex items-center gap-2">
                     {wall.showProviderCard ? (
@@ -331,11 +338,11 @@ export function AdminSurveyWalls() {
                       <EyeOff size={14} className="text-[#999999]" />
                     )}
                     <div>
-                      <p className="text-[12px] font-medium text-[#065F46]">Individual Surveys</p>
+                      <p className="text-[12px] font-medium text-[#065F46]">Survey Providers</p>
                       <p className="text-[10px] text-[#047857]">
                         {wall.showProviderCard
-                          ? 'Surveys appear in Individual Surveys'
-                          : 'Hidden from Individual Surveys'
+                          ? 'Card visible in Survey Providers'
+                          : 'Card hidden from Survey Providers'
                         }
                       </p>
                     </div>
@@ -343,6 +350,37 @@ export function AdminSurveyWalls() {
                   <Switch
                     checked={wall.showProviderCard ?? true}
                     onCheckedChange={() => toggleShowProviderCard(wall)}
+                    disabled={savingCard === wall.id}
+                  />
+                </div>
+
+                {/* ===== Toggle 2: Show in Individual Surveys ===== */}
+                <div className="flex items-center justify-between p-2.5 bg-[#EFF6FF] rounded-[8px] border border-[#3B82F6]/20">
+                  <div className="flex items-center gap-2">
+                    {wall.showInIndividualSurveys ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    )}
+                    <div>
+                      <p className="text-[12px] font-medium text-[#1E40AF]">Individual Surveys</p>
+                      <p className="text-[10px] text-[#3B82F6]">
+                        {wall.showInIndividualSurveys
+                          ? 'Surveys visible in Individual Surveys'
+                          : 'Surveys hidden from Individual Surveys'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={wall.showInIndividualSurveys ?? true}
+                    onCheckedChange={() => toggleShowInIndividualSurveys(wall)}
                     disabled={savingCard === wall.id}
                   />
                 </div>
@@ -596,20 +634,37 @@ export function AdminSurveyWalls() {
               </div>
             </div>
 
-            {/* ===== NEW: Show in Individual Surveys Toggle ===== */}
+            {/* ===== Toggle 1: Show in Survey Providers ===== */}
             <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
               <div>
-                <p className="text-[13px] font-medium text-[#065F46]">Show in Individual Surveys</p>
+                <p className="text-[13px] font-medium text-[#065F46]">Show in Survey Providers</p>
                 <p className="text-[11px] text-[#047857]">
                   {formData.showProviderCard
-                    ? 'Surveys from this provider will appear in Individual Surveys section'
-                    : 'Surveys from this provider will be hidden from Individual Surveys'
+                    ? 'Provider card will appear in Survey Providers section'
+                    : 'Provider card will be hidden from Survey Providers'
                   }
                 </p>
               </div>
               <Switch
                 checked={formData.showProviderCard}
                 onCheckedChange={(v) => setFormData((p) => ({ ...p, showProviderCard: v }))}
+              />
+            </div>
+
+            {/* ===== Toggle 2: Show in Individual Surveys ===== */}
+            <div className="flex items-center justify-between p-3 bg-[#EFF6FF] rounded-[8px] border border-[#3B82F6]/20">
+              <div>
+                <p className="text-[13px] font-medium text-[#1E40AF]">Show in Individual Surveys</p>
+                <p className="text-[11px] text-[#3B82F6]">
+                  {formData.showInIndividualSurveys
+                    ? 'Surveys from this provider will appear in Individual Surveys section'
+                    : 'Surveys from this provider will be hidden from Individual Surveys'
+                  }
+                </p>
+              </div>
+              <Switch
+                checked={formData.showInIndividualSurveys}
+                onCheckedChange={(v) => setFormData((p) => ({ ...p, showInIndividualSurveys: v }))}
               />
             </div>
 

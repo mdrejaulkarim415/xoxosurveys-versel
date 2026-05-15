@@ -439,8 +439,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User is banned' }, { status: 403 })
     }
 
-    // Get all active survey walls that have showProviderCard enabled
-    // (only providers with showProviderCard=true will appear in Individual Surveys)
+    // Get all active survey walls that have showInIndividualSurveys enabled
+    // (separate toggle from showProviderCard which controls Survey Providers section)
     const allWalls = await db.surveyWall.findMany({
       where: {
         isActive: true,
@@ -458,14 +458,13 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Filter walls: only show in Individual Surveys if showProviderCard is true
+    // Filter: only show in Individual Surveys if showInIndividualSurveys is true
     const walls = allWalls.filter(wall => {
       try {
         const config = JSON.parse(wall.config || '{}')
-        // Default to true if showProviderCard is not set (backward compatible)
-        return config.showProviderCard !== false
+        return config.showInIndividualSurveys !== false // default: show
       } catch {
-        return true // Default: show
+        return true
       }
     })
 

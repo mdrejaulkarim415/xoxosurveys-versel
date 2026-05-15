@@ -27,10 +27,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { id } = await params
     const body = await request.json()
 
-    // Extract userRevenuePercent and showProviderCard and store them in config JSON
-    const { userRevenuePercent, showProviderCard, ...restBody } = body
+    // Extract userRevenuePercent, showProviderCard, showInIndividualSurveys and store them in config JSON
+    const { userRevenuePercent, showProviderCard, showInIndividualSurveys, ...restBody } = body
 
-    // Merge userRevenuePercent and showProviderCard into config
+    // Merge userRevenuePercent, showProviderCard, showInIndividualSurveys into config
     const existingWall = await db.surveyWall.findUnique({ where: { id }, select: { config: true } })
     let configParsed: Record<string, unknown> = {}
     try { configParsed = JSON.parse(existingWall?.config || '{}') } catch { /* ignore */ }
@@ -41,6 +41,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     if (showProviderCard !== undefined) {
       configParsed.showProviderCard = showProviderCard
+    }
+
+    if (showInIndividualSurveys !== undefined) {
+      configParsed.showInIndividualSurveys = showInIndividualSurveys
     }
 
     // Handle config as JSON string
