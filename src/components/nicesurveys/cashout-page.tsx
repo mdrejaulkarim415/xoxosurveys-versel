@@ -116,6 +116,9 @@ export function CashoutPage() {
   const [resendLoading, setResendLoading] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
 
+  const [cashoutLoading, setCashoutLoading] = useState(false)
+  const [cashoutError, setCashoutError] = useState<string | null>(null)
+
   // Validate payment detail based on card type
   const isPaymentDetailValid = () => {
     if (!selectedCardData?.needsPaymentDetail) return true
@@ -162,20 +165,57 @@ export function CashoutPage() {
     }
   }
 
-  const handleCashout = () => {
+  const handleCashout = async () => {
     const amountNum = parseFloat(amount)
     if (!amountNum || amountNum > state.user.balance) return
-    setState(prev => ({
-      ...prev,
-      user: { ...prev.user, balance: prev.user.balance - amountNum },
-    }))
-    setCashoutSuccess(true)
-    setTimeout(() => {
-      setCashoutSuccess(false)
-      setSelectedCard(null)
-      setAmount('')
-      setShowConfirm(false)
-    }, 3000)
+
+    setCashoutLoading(true)
+    setCashoutError(null)
+
+    try {
+      const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
+      if (!storedUserId) {
+        setCashoutError('Session expired. Please log in again.')
+        return
+      }
+
+      const res = await fetch('/api/cashout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: storedUserId,
+          giftCardType: selectedCard,
+          amount: amountNum,
+          paymentDetail: selectedCardData?.needsPaymentDetail ? paymentDetail.trim() : null,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setCashoutError(data.error || 'Cashout request failed')
+        return
+      }
+
+      // Update user balance in state
+      setState(prev => ({
+        ...prev,
+        user: { ...prev.user, balance: data.newBalance ?? prev.user.balance - amountNum },
+      }))
+
+      setCashoutSuccess(true)
+      setTimeout(() => {
+        setCashoutSuccess(false)
+        setSelectedCard(null)
+        setAmount('')
+        setPaymentDetail('')
+        setShowConfirm(false)
+      }, 3000)
+    } catch {
+      setCashoutError('Network error. Please try again.')
+    } finally {
+      setCashoutLoading(false)
+    }
   }
 
   if (cashoutSuccess) {
@@ -427,10 +467,23 @@ export function CashoutPage() {
                 </div>
                 <button
                   onClick={handleCashout}
-                  className="ns-btn-primary w-full h-[44px]"
+                  disabled={cashoutLoading}
+                  className="ns-btn-primary w-full h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Confirm Cashout
+                  {cashoutLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 2a10 10 0 0 1 10 10" />
+                      </svg>
+                      Processing...
+                    </span>
+                  ) : (
+                    'Confirm Cashout'
+                  )}
                 </button>
+                {cashoutError && (
+                  <p className="text-[13px] text-[#DC2626] text-center mt-2">{cashoutError}</p>
+                )}
                 <button
                   onClick={() => setShowConfirm(false)}
                   className="w-full bg-[#F5F5F5] hover:bg-[#EAEAEA] text-[#4B4B4B] font-medium py-2.5 rounded-[8px] transition-colors text-[14px]"

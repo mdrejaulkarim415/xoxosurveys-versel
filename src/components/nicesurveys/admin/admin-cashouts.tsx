@@ -48,7 +48,63 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Copy,
+  Check,
 } from 'lucide-react'
+
+// Copyable payment detail component - shows address with copy button
+function CopyableDetail({ value, type }: { value: string; type: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const getLabel = () => {
+    switch (type?.toLowerCase()) {
+      case 'binance': return 'Binance ID'
+      case 'litecoin': return 'LTC Addr'
+      case 'paypal': return 'PayPal'
+      default: return 'Detail'
+    }
+  }
+
+  const getLabelColor = () => {
+    switch (type?.toLowerCase()) {
+      case 'binance': return '#F0B90B'
+      case 'litecoin': return '#345D9D'
+      case 'paypal': return '#003087'
+      default: return '#555555'
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 max-w-[180px]">
+      <span
+        className="text-[9px] font-bold px-1 py-0.5 rounded flex-shrink-0"
+        style={{ background: `${getLabelColor()}15`, color: getLabelColor() }}
+      >
+        {getLabel()}
+      </span>
+      <span className="font-mono text-[11px] text-[#1A1A1A] truncate" title={value}>
+        {value.length > 16 ? value.substring(0, 8) + '...' + value.substring(value.length - 6) : value}
+      </span>
+      <button
+        onClick={handleCopy}
+        className="flex-shrink-0 p-0.5 rounded hover:bg-[#F0F2F5] transition-colors"
+        title="Copy to clipboard"
+      >
+        {copied ? (
+          <Check size={10} className="text-[#10B981]" />
+        ) : (
+          <Copy size={10} className="text-[#999999]" />
+        )}
+      </button>
+    </div>
+  )
+}
 
 interface CashoutRecord {
   id: string
@@ -56,6 +112,7 @@ interface CashoutRecord {
   userEmail: string
   giftCardType: string
   amount: number
+  paymentDetail: string | null
   status: string
   isFlagged: boolean
   flagReason: string | null
@@ -116,6 +173,7 @@ export function AdminCashouts() {
         userEmail: (c.user && (c.user as Record<string, unknown>).email as string) || (c.userEmail as string) || '',
         giftCardType: (c.giftCardType as string) || '',
         amount: typeof c.amount === 'number' ? c.amount : parseFloat(String(c.amount || 0)),
+        paymentDetail: (c.paymentDetail as string | null) ?? null,
         status: (c.status as string) || '',
         isFlagged: Boolean(c.isFlagged),
         flagReason: (c.flagReason as string | null) ?? null,
@@ -485,6 +543,7 @@ export function AdminCashouts() {
                         <TableHead className="text-[12px] text-[#999999]">User</TableHead>
                         <TableHead className="text-[12px] text-[#999999]">Method</TableHead>
                         <TableHead className="text-[12px] text-[#999999]">Amount</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">Send To</TableHead>
                         <TableHead className="text-[12px] text-[#999999]">Status</TableHead>
                         <TableHead className="text-[12px] text-[#999999]">Flag</TableHead>
                         <TableHead className="text-[12px] text-[#999999]">IP</TableHead>
@@ -495,7 +554,7 @@ export function AdminCashouts() {
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={tab === 'pending' ? 9 : 8} className="text-center py-12">
+                          <TableCell colSpan={tab === 'pending' ? 10 : 9} className="text-center py-12">
                             <Loader2 size={24} className="animate-spin mx-auto text-[#999999]" />
                             <p className="text-[13px] text-[#999999] mt-2">Loading cashouts...</p>
                           </TableCell>
@@ -509,7 +568,7 @@ export function AdminCashouts() {
                         })
                         .length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={tab === 'pending' ? 9 : 8} className="text-center py-12">
+                          <TableCell colSpan={tab === 'pending' ? 10 : 9} className="text-center py-12">
                             <p className="text-[13px] text-[#999999]">No cashouts found</p>
                           </TableCell>
                         </TableRow>
@@ -535,6 +594,15 @@ export function AdminCashouts() {
                             </div>
                           </TableCell>
                           <TableCell className="text-[14px] font-bold text-[#1A1A1A]">${cashout.amount.toFixed(2)}</TableCell>
+                          <TableCell className="text-[11px]">
+                            {cashout.paymentDetail ? (
+                              <div className="flex items-center gap-1">
+                                <CopyableDetail value={cashout.paymentDetail} type={cashout.giftCardType} />
+                              </div>
+                            ) : (
+                              <span className="text-[#999999]">—</span>
+                            )}
+                          </TableCell>
                           <TableCell>{getStatusBadge(cashout.status)}</TableCell>
                           <TableCell>
                             {cashout.isChargeback ? (
