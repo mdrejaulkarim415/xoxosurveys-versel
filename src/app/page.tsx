@@ -63,9 +63,78 @@ export default function Home() {
     },
   })
 
-  // Handle email verification redirect from URL
+  const [hydrated, setHydrated] = useState(false)
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
 
+  // Restore session from localStorage on page load
+  useEffect(() => {
+    const savedToken = localStorage.getItem('sessionToken')
+    const savedUserId = localStorage.getItem('userId')
+    const savedEmail = localStorage.getItem('userEmail')
+    const savedRole = localStorage.getItem('userRole')
+
+    if (savedToken && savedUserId) {
+      // We have a saved session - restore it and fetch fresh data from API
+      const restoreSession = async () => {
+        try {
+          const res = await fetch(`/api/user/balance?userId=${savedUserId}`)
+          if (res.ok) {
+            const data = await res.json()
+            const role = savedRole || data.role || 'user'
+            const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
+            setState({
+              isLoggedIn: true,
+              currentPage: isAdmin ? 'admin' : 'surveys',
+              user: {
+                userId: parseInt(savedUserId) || 0,
+                email: savedEmail || '',
+                role,
+                balance: data.balance ?? 0,
+                surveysCompleted: data.surveysCompleted ?? 0,
+                surveyTarget: 25,
+                earningRate: data.earningRate ?? 0.005,
+                language: 'English (en)',
+                inviteCode: data.inviteCode || '',
+                unclaimedRevenue: data.unclaimedRevenue ?? 0,
+                friendsInvited: data.friendsInvited ?? 0,
+                totalEarned: data.totalEarned ?? 0,
+                emailVerified: data.emailVerified ?? false,
+              },
+            })
+          } else {
+            // Token/userId invalid - clear localStorage
+            localStorage.removeItem('sessionToken')
+            localStorage.removeItem('userId')
+            localStorage.removeItem('userEmail')
+            localStorage.removeItem('userRole')
+          }
+        } catch {
+          // API call failed - still try to restore from localStorage cache
+          if (savedEmail) {
+            const role = savedRole || 'user'
+            const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
+            setState(prev => ({
+              ...prev,
+              isLoggedIn: true,
+              currentPage: isAdmin ? 'admin' : 'surveys',
+              user: {
+                ...prev.user,
+                userId: parseInt(savedUserId) || 0,
+                email: savedEmail,
+                role,
+              },
+            }))
+          }
+        }
+        setHydrated(true)
+      }
+      restoreSession()
+    } else {
+      setHydrated(true)
+    }
+  }, [])
+
+  // Handle email verification redirect from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const verifyStatus = params.get('verify')
@@ -95,6 +164,14 @@ export default function Home() {
 
   const login = (email: string, emailVerified: boolean = false, userData?: Partial<AppState['user']>) => {
     const isAdmin = userData?.role === 'admin' || email === 'admin@xoxosurveys.com'
+    const role = userData?.role ?? (isAdmin ? 'admin' : 'user')
+
+    // Save to localStorage for session persistence
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('userEmail', email)
+      localStorage.setItem('userRole', role)
+    }
+
     setState(prev => ({
       ...prev,
       isLoggedIn: true,
@@ -103,7 +180,7 @@ export default function Home() {
         ...prev.user,
         userId: userData?.userId ?? prev.user.userId,
         email,
-        role: userData?.role ?? (isAdmin ? 'admin' : 'user'),
+        role,
         balance: userData?.balance ?? 0,
         surveysCompleted: userData?.surveysCompleted ?? 0,
         surveyTarget: userData?.surveyTarget ?? 25,
@@ -120,6 +197,8 @@ export default function Home() {
   const logout = () => {
     localStorage.removeItem('sessionToken')
     localStorage.removeItem('userId')
+    localStorage.removeItem('userEmail')
+    localStorage.removeItem('userRole')
     setState(prev => ({
       ...prev,
       isLoggedIn: false,
@@ -189,7 +268,14 @@ export default function Home() {
           </div>
         </div>
       )}
-      {!state.isLoggedIn ? (
+      {!hydrated ? (
+        <div className="min-h-screen flex items-center justify-center bg-[#F8FAFB]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-3 border-[#2DD9B6] border-t-transparent rounded-full animate-spin" />
+            <p className="text-[#999999] text-sm font-medium">Loading...</p>
+          </div>
+        </div>
+      ) : !state.isLoggedIn ? (
         <AuthPage />
       ) : state.currentPage === 'admin' ? (
         <AdminLayout />
