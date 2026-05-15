@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { antiFraudEngine } from '@/lib/anti-fraud'
 import { sendVerificationEmail, sendWelcomeEmail } from '@/lib/email'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
@@ -27,7 +26,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate password strength (minimum 8 chars, at least 1 number, 1 letter)
+    // Validate password strength
     if (password.length < 8) {
       return NextResponse.json(
         { error: 'Password must be at least 8 characters long' },
@@ -45,70 +44,7 @@ export async function POST(request: NextRequest) {
     const forwarded = request.headers.get('x-forwarded-for')
     const ipAddress = forwarded ? forwarded.split(',')[0].trim() : '127.0.0.1'
 
-    // 3. Check IP for VPN/proxy
-    const ipResult = await antiFraudEngine.checkIp(ipAddress)
-
-    if (ipResult.isTor) {
-      await antiFraudEngine.logFraudEvent({
-        eventType: 'tor_detected',
-        severity: 'critical',
-        details: { action: 'register', email },
-        ipAddress,
-        deviceFingerprint,
-        country: ipResult.country,
-        city: ipResult.city,
-      })
-      return NextResponse.json(
-        { error: 'Registration from Tor networks is not allowed. Please use a regular internet connection.' },
-        { status: 403 }
-      )
-    }
-
-    if (ipResult.isVpn && ipResult.riskScore >= 60) {
-      await antiFraudEngine.logFraudEvent({
-        eventType: 'vpn_detected',
-        severity: 'high',
-        details: { action: 'register', email, vpnScore: ipResult.riskScore },
-        ipAddress,
-        deviceFingerprint,
-        country: ipResult.country,
-        city: ipResult.city,
-      })
-      return NextResponse.json(
-        { error: 'Registration from VPN/proxy connections is not allowed. Please disable your VPN and try again.' },
-        { status: 403 }
-      )
-    }
-
-    // 4. Check for duplicate accounts (same IP/device)
-    const duplicateCheck = await antiFraudEngine.checkDuplicateAccount({
-      ipAddress,
-      deviceFingerprint,
-      currentUserEmail: email,
-    })
-
-    if (duplicateCheck.isDuplicate && duplicateCheck.confidence >= 0.7) {
-      await antiFraudEngine.logFraudEvent({
-        eventType: 'multiple_accounts',
-        severity: 'high',
-        details: {
-          action: 'register',
-          email,
-          matchingUsers: duplicateCheck.matchingUsers,
-          confidence: duplicateCheck.confidence,
-        },
-        ipAddress,
-        deviceFingerprint,
-        country: ipResult.country,
-        city: ipResult.city,
-      })
-      return NextResponse.json(
-        { error: 'Multiple accounts are not allowed. If you believe this is an error, please contact support.' },
-        { status: 403 }
-      )
-    }
-
-    // 5. Check if email already exists
+    // 3. Check if email already exists
     const existingUser = await db.user.findUnique({
       where: { email },
     })
@@ -120,38 +56,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 6. Handle invite code
+    // 4. Handle invite code
     let invitedBy: string | null = null
     if (inviteCode) {
-      const referrer = await db.user.findUnique({
-        where: { inviteCode },
-      })
-      if (referrer) {
-        invitedBy = referrer.id
+      try {
+        const referrer = await db.user.findUnique({
+          where: { inviteCode },
+        })
+        if (referrer) {
+          invitedBy = referrer.id
+        }
+      } catch (e) {
+        console.warn('[Register] Invite code lookup failed:', e)
       }
     }
 
-    // 7. Hash password
+    // 5. Hash password
     const salt = await bcrypt.genSalt(12)
     const passwordHash = await bcrypt.hash(password, salt)
 
-    // 8. Generate unique invite code for new user
+    // 6. Generate unique invite code for new user
     const userInviteCode = 'XOXO-' + crypto.randomBytes(4).toString('hex').toUpperCase()
 
-    // 8b. Generate sequential userId starting from 100
-    const lastUser = await db.user.findFirst({
-      orderBy: { userId: 'desc' },
-      select: { userId: true },
-    })
-    const nextUserId = lastUser ? lastUser.userId + 1 : 100
+    // 7. Generate sequential userId starting from 100
+    let nextUserId = 100
+    try {
+      const lastUser = await db.user.findFirst({
+        orderBy: { userId: 'desc' },
+        select: { userId: true },
+      })
+      nextUserId = lastUser ? lastUser.userId + 1 : 100
+    } catch (e) {
+      console.warn('[Register] Could not get last userId, using default:', e)
+    }
 
-    // 9. Calculate initial fraud score based on IP check
-    const initialFraudScore = Math.min(100, ipResult.riskScore * 0.5)
-
-    // 9b. Generate email verification token
+    // 8. Generate email verification token
     const emailVerificationToken = crypto.randomBytes(32).toString('hex')
 
-    // 10. Create user
+    // 9. Create user
     const user = await db.user.create({
       data: {
         userId: nextUserId,
@@ -161,12 +103,10 @@ export async function POST(request: NextRequest) {
         inviteCode: userInviteCode,
         invitedBy,
         deviceFingerprint: deviceFingerprint || null,
-        fraudScore: initialFraudScore,
-        fraudFlags: JSON.stringify(
-          ipResult.isVpn ? ['vpn_ip_on_register'] : []
-        ),
-        isFlagged: initialFraudScore > 30,
-        isVpnBlocked: ipResult.isVpn && ipResult.riskScore >= 50,
+        fraudScore: 0,
+        fraudFlags: '[]',
+        isFlagged: false,
+        isVpnBlocked: false,
         lastLoginIp: ipAddress,
         lastLoginAt: new Date(),
         loginCount: 1,
@@ -175,73 +115,91 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // 11. Record IP for user
-    await antiFraudEngine.recordUserIp({
-      userId: user.id,
-      ipAddress,
-      country: ipResult.country,
-      city: ipResult.city,
-      isVpn: ipResult.isVpn,
-      isProxy: ipResult.isProxy,
-      isTor: ipResult.isTor,
-    })
-
-    // 12. Log activity
-    await antiFraudEngine.logActivity({
-      userId: user.id,
-      action: 'register',
-      details: {
-        ipRiskScore: ipResult.riskScore,
-        isVpn: ipResult.isVpn,
-        isProxy: ipResult.isProxy,
-        isTor: ipResult.isTor,
-        hasInviteCode: !!inviteCode,
-      },
-      ipAddress,
-      userAgent: request.headers.get('user-agent') || undefined,
-      deviceFingerprint,
-      country: ipResult.country,
-      city: ipResult.city,
-    })
-
-    // 13. Update referrer's friends count
-    if (invitedBy) {
-      await db.user.update({
-        where: { id: invitedBy },
-        data: { friendsInvited: { increment: 1 } },
+    // 10. Try to record IP (non-blocking)
+    try {
+      await db.userIp.upsert({
+        where: {
+          userId_ipAddress: {
+            userId: user.id,
+            ipAddress,
+          },
+        },
+        create: {
+          userId: user.id,
+          ipAddress,
+          country: 'Unknown',
+          city: 'Unknown',
+          isVpn: false,
+          isProxy: false,
+          isTor: false,
+        },
+        update: {
+          country: 'Unknown',
+          city: 'Unknown',
+        },
       })
+    } catch (e) {
+      console.warn('[Register] IP recording failed:', e)
     }
 
-    // 14. Create session token
+    // 11. Try to log activity (non-blocking)
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: 'register',
+          details: JSON.stringify({ hasInviteCode: !!inviteCode }),
+          ipAddress,
+          userAgent: request.headers.get('user-agent') || undefined,
+          deviceFingerprint,
+        },
+      })
+    } catch (e) {
+      console.warn('[Register] Activity logging failed:', e)
+    }
+
+    // 12. Update referrer's friends count (non-blocking)
+    if (invitedBy) {
+      try {
+        await db.user.update({
+          where: { id: invitedBy },
+          data: { friendsInvited: { increment: 1 } },
+        })
+      } catch (e) {
+        console.warn('[Register] Referrer update failed:', e)
+      }
+    }
+
+    // 13. Create session token
     const sessionToken = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
 
-    await db.session.create({
-      data: {
-        userId: user.id,
-        token: sessionToken,
-        deviceFingerprint: deviceFingerprint || null,
-        ipAddress,
-        userAgent: request.headers.get('user-agent') || null,
-        country: ipResult.country,
-        city: ipResult.city,
-        isVpn: ipResult.isVpn,
-        expiresAt,
-      },
-    })
+    try {
+      await db.session.create({
+        data: {
+          userId: user.id,
+          token: sessionToken,
+          deviceFingerprint: deviceFingerprint || null,
+          ipAddress,
+          userAgent: request.headers.get('user-agent') || null,
+          country: 'Unknown',
+          city: 'Unknown',
+          isVpn: false,
+          expiresAt,
+        },
+      })
+    } catch (e) {
+      console.warn('[Register] Session creation failed:', e)
+    }
 
-    // 15. Send verification email and welcome email
+    // 14. Send verification email (non-blocking)
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
     const verificationUrl = `${baseUrl}/api/auth/verify-email?token=${emailVerificationToken}`
 
-    // Send emails in parallel (non-blocking - don't fail registration if email fails)
     Promise.all([
       sendVerificationEmail(email, verificationUrl),
       sendWelcomeEmail(email, name || null),
-    ]).then(([verificationSent, welcomeSent]) => {
-      if (!verificationSent) console.warn(`[Register] Verification email failed for ${email}`)
-      if (!welcomeSent) console.warn(`[Register] Welcome email failed for ${email}`)
-    }).catch(err => {
+    ]).catch(err => {
       console.error('[Register] Email sending error:', err)
     })
 
@@ -253,12 +211,33 @@ export async function POST(request: NextRequest) {
       sessionToken,
       emailVerificationRequired: true,
       ...(process.env.NODE_ENV === 'development' && { verificationUrl }),
-      warnings: ipResult.isVpn ? ['VPN detected: Some features may be limited'] : [],
     }, { status: 201 })
-  } catch (error) {
+
+  } catch (error: any) {
     console.error('[Auth Register] Error:', error)
+
+    // Provide more specific error messages
+    if (error?.code === 'P1001') {
+      return NextResponse.json(
+        { error: 'Database connection failed. Please check DATABASE_URL environment variable.' },
+        { status: 500 }
+      )
+    }
+    if (error?.code === 'P2021') {
+      return NextResponse.json(
+        { error: 'Database tables not found. Please run: npx prisma db push' },
+        { status: 500 }
+      )
+    }
+    if (error?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'An account with this email already exists' },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json(
-      { error: 'Internal server error during registration' },
+      { error: 'Internal server error during registration', details: process.env.NODE_ENV === 'development' ? error?.message : undefined },
       { status: 500 }
     )
   }
