@@ -106,6 +106,11 @@ export function SurveysPage() {
     reward: string
   } | null>(null)
   const [revtooUrl, setRevtooUrl] = useState<string | null>(null)
+  const [revtooCustom, setRevtooCustom] = useState<{
+    badge: string
+    time: string
+    payout: string
+  }>({ badge: 'Featured', time: '5-20 Min', payout: '' })
 
   // Walls and surveys state
   const [walls, setWalls] = useState<SurveyWall[]>([])
@@ -126,6 +131,9 @@ export function SurveysPage() {
           const data = await res.json()
           setRevtooOffer(data.offer)
           setRevtooUrl(data.redirectUrl)
+          if (data.customization) {
+            setRevtooCustom(data.customization)
+          }
         }
       } catch {
         // Silently fail
@@ -312,7 +320,7 @@ export function SurveysPage() {
                     {revtooOffer.title}
                   </h2>
                   <span className="bg-white/20 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                    Featured
+                    {revtooCustom.badge}
                   </span>
                 </div>
                 <p className="text-[13px] text-white/80 mt-0.5">
@@ -337,7 +345,7 @@ export function SurveysPage() {
                     <circle cx="12" cy="12" r="10" />
                     <polyline points="12 6 12 12 16 14" />
                   </svg>
-                  <span className="text-[13px] text-[#555555]">5-20 Min</span>
+                  <span className="text-[13px] text-[#555555]">{revtooCustom.time}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2">
@@ -345,7 +353,7 @@ export function SurveysPage() {
                     <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                   </svg>
                   <span className="text-[13px] text-[#10B981] font-bold">
-                    {revtooOffer.payout ? `Up to $${parseFloat(revtooOffer.payout).toFixed(2)}` : 'Variable Reward'}
+                    {revtooCustom.payout || (revtooOffer.payout ? `Up to $${parseFloat(revtooOffer.payout).toFixed(2)}` : 'Variable Reward')}
                   </span>
                 </div>
                 {revtooOffer.countries && revtooOffer.countries.length > 0 && (

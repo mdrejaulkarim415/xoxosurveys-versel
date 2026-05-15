@@ -39,6 +39,13 @@ interface SettingsState {
   defaultBlockProxy: boolean
   defaultMinFraudScore: number
   defaultCooldown: number
+  featuredOfferEnabled: boolean
+  featuredOfferTitle: string
+  featuredOfferDescription: string
+  featuredOfferBadge: string
+  featuredOfferId: number
+  featuredOfferTime: string
+  featuredOfferPayout: string
   emailTemplateCashoutApproved: string
   emailTemplateCashoutRejected: string
   emailTemplateFraudWarning: string
@@ -60,6 +67,13 @@ const defaultSettings: SettingsState = {
   defaultBlockProxy: true,
   defaultMinFraudScore: 50,
   defaultCooldown: 5,
+  featuredOfferEnabled: true,
+  featuredOfferTitle: '',
+  featuredOfferDescription: '',
+  featuredOfferBadge: 'Featured',
+  featuredOfferId: 56443,
+  featuredOfferTime: '5-20 Min',
+  featuredOfferPayout: '',
   emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
@@ -89,12 +103,6 @@ export function AdminSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Featured Offer state (reads from RevToo SurveyWall)
-  const [featuredOfferEnabled, setFeaturedOfferEnabled] = useState(false)
-  const [featuredOfferLoading, setFeaturedOfferLoading] = useState(true)
-  const [featuredOfferSaving, setFeaturedOfferSaving] = useState(false)
-  const [revtooWallId, setRevtooWallId] = useState<string | null>(null)
-
   const fetchSettings = useCallback(async () => {
     try {
       setLoading(true)
@@ -112,54 +120,9 @@ export function AdminSettings() {
     }
   }, [])
 
-  // Fetch Featured Offer status from RevToo SurveyWall
-  const fetchFeaturedOfferStatus = useCallback(async () => {
-    try {
-      setFeaturedOfferLoading(true)
-      const res = await fetch('/api/admin/survey-walls')
-      if (res.ok) {
-        const data = await res.json()
-        const walls = Array.isArray(data) ? data : []
-        const revtooWall = walls.find((w: { provider: string; isActive: boolean; id: string }) => w.provider === 'revtoo')
-        if (revtooWall) {
-          setFeaturedOfferEnabled(revtooWall.isActive)
-          setRevtooWallId(revtooWall.id)
-        } else {
-          // No RevToo wall exists yet
-          setFeaturedOfferEnabled(false)
-          setRevtooWallId(null)
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch featured offer status:', err)
-    } finally {
-      setFeaturedOfferLoading(false)
-    }
-  }, [])
-
-  // Toggle Featured Offer on/off
-  const toggleFeaturedOffer = async () => {
-    if (!revtooWallId) return
-    try {
-      setFeaturedOfferSaving(true)
-      const res = await fetch(`/api/admin/survey-walls/${revtooWallId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !featuredOfferEnabled }),
-      })
-      if (!res.ok) throw new Error('Failed to toggle featured offer')
-      setFeaturedOfferEnabled(!featuredOfferEnabled)
-    } catch (err) {
-      console.error('Toggle featured offer error:', err)
-    } finally {
-      setFeaturedOfferSaving(false)
-    }
-  }
-
   useEffect(() => {
     fetchSettings()
-    fetchFeaturedOfferStatus()
-  }, [fetchSettings, fetchFeaturedOfferStatus])
+  }, [fetchSettings])
 
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
@@ -254,29 +217,98 @@ export function AdminSettings() {
                 <p className="text-[11px] text-[#999999] mt-1">Percentage of referral earnings that the referrer receives</p>
               </div>
 
-              {/* Featured Offer Toggle */}
+              {/* Featured Offer Section */}
               <div className="border-t border-[#E5E7EB] pt-5">
-                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
+                <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2 mb-3">
+                  <Star size={14} className="text-[#0FBCC0]" /> Featured Offer
+                </h4>
+
+                {/* Toggle */}
+                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20 mb-3">
                   <div>
-                    <p className="text-[13px] font-medium text-[#065F46] flex items-center gap-2">
-                      <Star size={16} className="text-[#0FBCC0]" />
-                      Featured Offer
-                    </p>
+                    <p className="text-[13px] font-medium text-[#065F46]">Show Featured Offer</p>
                     <p className="text-[11px] text-[#047857]">
-                      {featuredOfferLoading
-                        ? 'Loading...'
-                        : revtooWallId
-                          ? (featuredOfferEnabled ? 'Featured offer is visible to users' : 'Featured offer is hidden from users')
-                          : 'No RevToo wall configured — add one in Survey Walls'
+                      {settings.featuredOfferEnabled
+                        ? 'Featured offer is visible to users'
+                        : 'Featured offer is hidden from users'
                       }
                     </p>
                   </div>
                   <Switch
-                    checked={featuredOfferEnabled}
-                    onCheckedChange={toggleFeaturedOffer}
-                    disabled={featuredOfferLoading || featuredOfferSaving || !revtooWallId}
+                    checked={settings.featuredOfferEnabled}
+                    onCheckedChange={(v) => updateSetting('featuredOfferEnabled', v)}
                   />
                 </div>
+
+                {/* Customization Fields */}
+                {settings.featuredOfferEnabled && (
+                  <div className="space-y-3 pl-1">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-[12px] font-medium">Custom Title</Label>
+                        <Input
+                          value={settings.featuredOfferTitle}
+                          onChange={(e) => updateSetting('featuredOfferTitle', e.target.value)}
+                          placeholder="Leave empty to use API title"
+                          className="h-9 text-[13px] mt-1"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">Override the offer title shown to users</p>
+                      </div>
+                      <div>
+                        <Label className="text-[12px] font-medium">Badge Text</Label>
+                        <Input
+                          value={settings.featuredOfferBadge}
+                          onChange={(e) => updateSetting('featuredOfferBadge', e.target.value)}
+                          placeholder="Featured"
+                          className="h-9 text-[13px] mt-1 max-w-[140px]"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">Badge label (e.g. Featured, Hot, New)</p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-[12px] font-medium">Custom Description</Label>
+                      <Input
+                        value={settings.featuredOfferDescription}
+                        onChange={(e) => updateSetting('featuredOfferDescription', e.target.value)}
+                        placeholder="Leave empty to use API description"
+                        className="h-9 text-[13px] mt-1"
+                      />
+                      <p className="text-[10px] text-[#999999] mt-0.5">Override the offer description</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label className="text-[12px] font-medium">Offer ID</Label>
+                        <Input
+                          type="number"
+                          value={settings.featuredOfferId}
+                          onChange={(e) => updateSetting('featuredOfferId', Number(e.target.value))}
+                          className="h-9 text-[13px] mt-1"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">RevToo offer ID</p>
+                      </div>
+                      <div>
+                        <Label className="text-[12px] font-medium">Est. Time</Label>
+                        <Input
+                          value={settings.featuredOfferTime}
+                          onChange={(e) => updateSetting('featuredOfferTime', e.target.value)}
+                          placeholder="5-20 Min"
+                          className="h-9 text-[13px] mt-1"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">Estimated completion time</p>
+                      </div>
+                      <div>
+                        <Label className="text-[12px] font-medium">Payout Text</Label>
+                        <Input
+                          value={settings.featuredOfferPayout}
+                          onChange={(e) => updateSetting('featuredOfferPayout', e.target.value)}
+                          placeholder="Leave empty for API value"
+                          className="h-9 text-[13px] mt-1"
+                        />
+                        <p className="text-[10px] text-[#999999] mt-0.5">e.g. Up to $5.00</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Survey Provider Management Note */}
