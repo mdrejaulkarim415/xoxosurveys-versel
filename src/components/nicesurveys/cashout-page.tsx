@@ -603,7 +603,7 @@ export function CashoutPage() {
               Amount (${selectedCardData?.min}-${selectedCardData?.max})
             </label>
             <div className="relative mb-4">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#999999] text-[14px]">$</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#999999] text-[14px] font-medium pointer-events-none">$</span>
               <input
                 type="number"
                 value={amount}
@@ -611,7 +611,8 @@ export function CashoutPage() {
                 placeholder={`Enter amount (${selectedCardData?.min}-${selectedCardData?.max})`}
                 min={selectedCardData?.min}
                 max={Math.min(selectedCardData?.max || 50, state.user.balance)}
-                className="ns-input pl-7"
+                className="ns-input"
+                style={{ paddingLeft: '32px' }}
               />
             </div>
 
