@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+// Force dynamic — no caching so admin toggle changes are reflected immediately
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -59,35 +62,21 @@ export async function GET(request: NextRequest) {
 
       switch (wall.provider) {
         case 'revtoo':
-          redirectUrl = `https://revtoo.com/offer/56443?user_id=${userId}`
+          redirectUrl = `${origin}/api/surveys/revtoo-redirect?user_id=${encodeURIComponent(userId)}`
           break
         case 'cpx-research':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&user_id=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?user_id=${userId}`
-          }
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}`
           break
         case 'bitlabs':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&uid=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?uid=${userId}`
-          }
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}`
           break
         case 'inbrain':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?appId=${wall.apiKey}&userId=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?userId=${userId}`
-          }
+          redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}`
           break
         case 'custom':
         default:
           if (wall.endpointUrl) {
-            // Append user_id as query param
-            const sep = wall.endpointUrl.includes('?') ? '&' : '?'
-            redirectUrl = `${wall.endpointUrl}${sep}user_id=${userId}`
+            redirectUrl = `${origin}/api/surveys/provider-redirect?wallId=${wall.id}&user_id=${encodeURIComponent(userId)}`
           }
           break
       }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+// Force dynamic — no caching so admin toggle changes are reflected immediately
+export const dynamic = 'force-dynamic'
+
 /**
  * Fetch offers from ALL active provider APIs and return them as
  * normalized Individual Survey items.
