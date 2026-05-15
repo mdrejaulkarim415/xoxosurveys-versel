@@ -5,12 +5,13 @@ import { db } from '@/lib/db'
  * Revtoo Postback Endpoint
  *
  * Revtoo calls this endpoint when a user completes a survey.
- * Typical Revtoo postback parameters:
- * - user_id: The user ID we passed in the redirect URL
- * - offer_id: The offer ID (56443 for Revtoo Surveys)
+ * Supports both snake_case and camelCase parameter names from RevToo:
+ * - subId / sub_id / user_id / userId: The user ID we passed in the redirect URL
+ * - offer_id / offerId: The offer ID
  * - payout: The payout amount
- * - reward: The reward amount given to user
- * - transaction_id: Unique transaction ID from Revtoo
+ * - reward / reward_value: The reward amount given to user
+ * - transId / tid / transaction_id: Unique transaction ID from RevToo
+ * - status: 1/completed/approved = credit, anything else = ignore
  * - ip: User's IP address
  * - signature: Security signature (if configured)
  */
@@ -26,14 +27,20 @@ async function handlePostback(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
 
-    // Revtoo postback parameters
-    const userId = searchParams.get('user_id') || searchParams.get('sub_id')
-    const offerId = searchParams.get('offer_id')
+    // Revtoo postback parameters (support both snake_case and camelCase)
+    const userId = searchParams.get('user_id') || searchParams.get('sub_id') || searchParams.get('subId') || searchParams.get('userId')
+    const offerId = searchParams.get('offer_id') || searchParams.get('offerId')
     const payout = searchParams.get('payout')
-    const reward = searchParams.get('reward')
-    const transactionId = searchParams.get('transaction_id') || searchParams.get('tid')
+    const reward = searchParams.get('reward') || searchParams.get('reward_value')
+    const transactionId = searchParams.get('transaction_id') || searchParams.get('tid') || searchParams.get('transId')
     const ip = searchParams.get('ip')
     const signature = searchParams.get('signature')
+    const status = searchParams.get('status')
+
+    console.log('[Revtoo Postback] Received:', {
+      userId, offerId, payout, reward, transactionId, status, ip,
+      allParams: Object.fromEntries(searchParams.entries()),
+    })
 
     // Also try to get from POST body
     let body: Record<string, string> = {}
@@ -46,12 +53,18 @@ async function handlePostback(request: NextRequest) {
       // No JSON body
     }
 
-    const finalUserId = userId || body.user_id || body.sub_id
+    const finalUserId = userId || body.user_id || body.sub_id || body.subId
     const finalOfferId = offerId || body.offer_id
     const finalPayout = parseFloat(payout || body.payout || '0')
-    const finalReward = parseFloat(reward || body.reward || '0')
-    const finalTransactionId = transactionId || body.transaction_id || body.tid
+    const finalReward = parseFloat(reward || body.reward || body.reward_value || '0')
+    const finalTransactionId = transactionId || body.transaction_id || body.tid || body.transId
     const finalIp = ip || body.ip
+
+    // Handle RevToo status: only credit on completed/status=1/status=approved
+    if (status && status !== '1' && status !== 'completed' && status !== 'approved') {
+      console.log(`[Revtoo Postback] Ignored - status: ${status}`)
+      return NextResponse.json({ success: true, message: `Status: ${status}` })
+    }
 
     if (!finalUserId) {
       return NextResponse.json({ error: 'Missing user_id parameter' }, { status: 400 })
