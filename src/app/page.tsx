@@ -66,69 +66,117 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false)
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
 
+  // Helper: parse userId that could be cuid ("clxxx") or integer string
+  const parseUserId = (val: string | null): number => {
+    if (!val) return 0
+    const num = parseInt(val)
+    return isNaN(num) ? 0 : num
+  }
+
   // Restore session from localStorage on page load
   useEffect(() => {
     const savedToken = localStorage.getItem('sessionToken')
-    const savedUserId = localStorage.getItem('userId')
+    const savedUserId = localStorage.getItem('userId') // cuid
+    const savedNumericUserId = localStorage.getItem('numericUserId') // integer
     const savedEmail = localStorage.getItem('userEmail')
     const savedRole = localStorage.getItem('userRole')
+    const savedUserData = localStorage.getItem('userData') // cached user data JSON
 
     if (savedToken && savedUserId) {
-      // We have a saved session - restore it and fetch fresh data from API
-      const restoreSession = async () => {
+      // We have a saved session - restore from cache FIRST (instant, no flicker)
+      const role = savedRole || 'user'
+      const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
+      const numericId = parseUserId(savedNumericUserId)
+
+      // Restore from cache immediately
+      if (savedEmail) {
+        let cachedData: any = null
         try {
-          const res = await fetch(`/api/user/balance?userId=${savedUserId}`)
-          if (res.ok) {
-            const data = await res.json()
-            const role = savedRole || data.role || 'user'
-            const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
-            setState({
-              isLoggedIn: true,
-              currentPage: isAdmin ? 'admin' : 'surveys',
-              user: {
-                userId: parseInt(savedUserId) || 0,
-                email: savedEmail || '',
-                role,
-                balance: data.balance ?? 0,
-                surveysCompleted: data.surveysCompleted ?? 0,
-                surveyTarget: 25,
-                earningRate: data.earningRate ?? 0.005,
-                language: 'English (en)',
-                inviteCode: data.inviteCode || '',
-                unclaimedRevenue: data.unclaimedRevenue ?? 0,
-                friendsInvited: data.friendsInvited ?? 0,
-                totalEarned: data.totalEarned ?? 0,
-                emailVerified: data.emailVerified ?? false,
-              },
-            })
-          } else {
-            // Token/userId invalid - clear localStorage
-            localStorage.removeItem('sessionToken')
-            localStorage.removeItem('userId')
-            localStorage.removeItem('userEmail')
-            localStorage.removeItem('userRole')
-          }
-        } catch {
-          // API call failed - still try to restore from localStorage cache
-          if (savedEmail) {
-            const role = savedRole || 'user'
-            const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
-            setState(prev => ({
-              ...prev,
-              isLoggedIn: true,
-              currentPage: isAdmin ? 'admin' : 'surveys',
-              user: {
-                ...prev.user,
-                userId: parseInt(savedUserId) || 0,
-                email: savedEmail,
-                role,
-              },
-            }))
+          cachedData = savedUserData ? JSON.parse(savedUserData) : null
+        } catch { /* ignore parse error */ }
+
+        setState({
+          isLoggedIn: true,
+          currentPage: isAdmin ? 'admin' : 'surveys',
+          user: {
+            userId: numericId || (cachedData?.userId ?? 0),
+            email: savedEmail,
+            role,
+            balance: cachedData?.balance ?? 0,
+            surveysCompleted: cachedData?.surveysCompleted ?? 0,
+            surveyTarget: cachedData?.surveyTarget ?? 25,
+            earningRate: cachedData?.earningRate ?? 0.005,
+            language: cachedData?.language ?? 'English (en)',
+            inviteCode: cachedData?.inviteCode ?? '',
+            unclaimedRevenue: cachedData?.unclaimedRevenue ?? 0,
+            friendsInvited: cachedData?.friendsInvited ?? 0,
+            totalEarned: cachedData?.totalEarned ?? 0,
+            emailVerified: cachedData?.emailVerified ?? false,
+          },
+        })
+        setHydrated(true)
+
+        // Then try to refresh from API in background
+        const refreshFromApi = async () => {
+          try {
+            const res = await fetch(`/api/user/balance?userId=${savedUserId}`)
+            if (res.ok) {
+              const data = await res.json()
+              const freshRole = data.role || savedRole || 'user'
+              const freshIsAdmin = freshRole === 'admin' || savedEmail === 'admin@xoxosurveys.com'
+              const freshNumericId = data.userId ?? numericId
+
+              // Save fresh data to cache
+              localStorage.setItem('userData', JSON.stringify(data))
+              if (data.userId) localStorage.setItem('numericUserId', String(data.userId))
+
+              setState(prev => ({
+                ...prev,
+                currentPage: freshIsAdmin ? 'admin' : prev.currentPage,
+                user: {
+                  ...prev.user,
+                  userId: freshNumericId || prev.user.userId,
+                  role: freshRole,
+                  balance: data.balance ?? prev.user.balance,
+                  surveysCompleted: data.surveysCompleted ?? prev.user.surveysCompleted,
+                  earningRate: data.earningRate ?? prev.user.earningRate,
+                  inviteCode: data.inviteCode || prev.user.inviteCode,
+                  unclaimedRevenue: data.unclaimedRevenue ?? prev.user.unclaimedRevenue,
+                  friendsInvited: data.friendsInvited ?? prev.user.friendsInvited,
+                  totalEarned: data.totalEarned ?? prev.user.totalEarned,
+                  emailVerified: data.emailVerified ?? prev.user.emailVerified,
+                },
+              }))
+            } else if (res.status === 404) {
+              // User truly not found - session is invalid
+              localStorage.removeItem('sessionToken')
+              localStorage.removeItem('userId')
+              localStorage.removeItem('numericUserId')
+              localStorage.removeItem('userEmail')
+              localStorage.removeItem('userRole')
+              localStorage.removeItem('userData')
+              setState(prev => ({
+                ...prev,
+                isLoggedIn: false,
+                currentPage: 'surveys',
+                user: {
+                  userId: 0, email: '', role: 'user', balance: 0,
+                  surveysCompleted: 0, surveyTarget: 25, earningRate: 0.005,
+                  language: 'English (en)', inviteCode: '', unclaimedRevenue: 0,
+                  friendsInvited: 0, totalEarned: 0, emailVerified: false,
+                },
+              }))
+            }
+            // For 500 or other errors, keep the cached session - don't log out
+          } catch {
+            // API call failed (network error, cold start, etc.) - keep cached session
           }
         }
+        refreshFromApi()
+      } else {
+        // No email saved - can't restore properly
         setHydrated(true)
       }
-      restoreSession()
     } else {
       setHydrated(true)
     }
@@ -170,6 +218,23 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('userEmail', email)
       localStorage.setItem('userRole', role)
+      if (userData?.userId) {
+        localStorage.setItem('numericUserId', String(userData.userId))
+      }
+      // Cache user data for instant restore on reload
+      localStorage.setItem('userData', JSON.stringify({
+        userId: userData?.userId ?? 0,
+        balance: userData?.balance ?? 0,
+        surveysCompleted: userData?.surveysCompleted ?? 0,
+        surveyTarget: userData?.surveyTarget ?? 25,
+        earningRate: userData?.earningRate ?? 0.005,
+        inviteCode: userData?.inviteCode ?? '',
+        unclaimedRevenue: userData?.unclaimedRevenue ?? 0,
+        friendsInvited: userData?.friendsInvited ?? 0,
+        totalEarned: userData?.totalEarned ?? 0,
+        emailVerified: isAdmin ? true : emailVerified,
+        language: 'English (en)',
+      }))
     }
 
     setState(prev => ({
@@ -197,8 +262,10 @@ export default function Home() {
   const logout = () => {
     localStorage.removeItem('sessionToken')
     localStorage.removeItem('userId')
+    localStorage.removeItem('numericUserId')
     localStorage.removeItem('userEmail')
     localStorage.removeItem('userRole')
+    localStorage.removeItem('userData')
     setState(prev => ({
       ...prev,
       isLoggedIn: false,
@@ -233,14 +300,24 @@ export default function Home() {
       const res = await fetch(`/api/user/balance?userId=${userId}`)
       if (res.ok) {
         const data = await res.json()
+        // Update cache
+        localStorage.setItem('userData', JSON.stringify(data))
+        if (data.userId) localStorage.setItem('numericUserId', String(data.userId))
+
         setState(prev => ({
           ...prev,
           user: {
             ...prev.user,
+            userId: data.userId ?? prev.user.userId,
             balance: data.balance ?? prev.user.balance,
             emailVerified: data.emailVerified ?? prev.user.emailVerified,
             totalEarned: data.totalEarned ?? prev.user.totalEarned,
             surveysCompleted: data.surveysCompleted ?? prev.user.surveysCompleted,
+            earningRate: data.earningRate ?? prev.user.earningRate,
+            inviteCode: data.inviteCode || prev.user.inviteCode,
+            unclaimedRevenue: data.unclaimedRevenue ?? prev.user.unclaimedRevenue,
+            friendsInvited: data.friendsInvited ?? prev.user.friendsInvited,
+            role: data.role ?? prev.user.role,
           },
         }))
       }
