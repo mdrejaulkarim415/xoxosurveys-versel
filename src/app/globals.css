@@ -156,6 +156,27 @@
 }
 
 /* ================================
+   XoXoSurveys Primary Button (form submit, auth)
+   ================================ */
+.ns-btn-primary {
+  border-radius: 90px;
+  background: linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 15px;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ns-btn-primary:hover {
+  background: linear-gradient(270deg, #22B9CF 19.17%, #2DD9B6 86.28%);
+}
+
+/* ================================
    XoXoSurveys CTA Gradient Button
    ================================ */
 .ns-btn-cta {
