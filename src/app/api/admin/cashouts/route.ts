@@ -29,7 +29,13 @@ export async function GET(request: Request) {
       db.cashout.count({ where }),
     ])
 
-    return NextResponse.json({ cashouts, total, page, limit })
+    // Map to include paymentDetail for admin visibility
+    const mappedCashouts = cashouts.map(c => ({
+      ...c,
+      paymentDetail: c.paymentDetail || null,
+    }))
+
+    return NextResponse.json({ cashouts: mappedCashouts, total, page, limit })
   } catch (error) {
     console.error('Cashouts list error:', error)
     return NextResponse.json({ error: 'Failed to fetch cashouts' }, { status: 500 })
