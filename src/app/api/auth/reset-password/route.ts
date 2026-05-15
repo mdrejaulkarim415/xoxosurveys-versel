@@ -2,8 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 
+// Auto-ensure passwordResetToken and passwordResetExpires columns exist
+let columnsEnsured = false
+
+async function ensureResetColumns() {
+  if (columnsEnsured) return
+  try {
+    await db.$queryRaw`SELECT "passwordResetToken", "passwordResetExpires" FROM "User" LIMIT 0`
+    columnsEnsured = true
+  } catch (err: any) {
+    try {
+      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
+      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
+      columnsEnsured = true
+      console.log('[Reset Password] Reset columns added successfully')
+    } catch (alterErr: any) {
+      console.error('[Reset Password] Failed to add columns:', alterErr?.message)
+      throw alterErr
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Ensure the database columns exist
+    await ensureResetColumns()
+
     const body = await request.json()
     const { token, password } = body
 
@@ -33,7 +57,7 @@ export async function POST(request: NextRequest) {
     const user = await db.user.findFirst({
       where: {
         passwordResetToken: token,
-        passwordResetExpires: { gt: new Date() }, // Token must not be expired
+        passwordResetExpires: { gt: new Date() },
       },
     })
 
@@ -85,9 +109,10 @@ export async function POST(request: NextRequest) {
       message: 'Password reset successful. You can now login with your new password.',
     })
   } catch (error: any) {
-    console.error('[Reset Password] Error:', error)
+    console.error('[Reset Password] Error:', error?.message || error)
+    console.error('[Reset Password] Stack:', error?.stack)
     return NextResponse.json(
-      { error: 'Failed to reset password. Please try again.' },
+      { error: `Failed to reset password: ${error?.message || 'Unknown error'}` },
       { status: 500 }
     )
   }

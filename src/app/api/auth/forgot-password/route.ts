@@ -3,8 +3,35 @@ import { db } from '@/lib/db'
 import crypto from 'crypto'
 import { sendPasswordResetEmail } from '@/lib/email'
 
+// Auto-ensure passwordResetToken and passwordResetExpires columns exist
+let columnsEnsured = false
+
+async function ensureResetColumns() {
+  if (columnsEnsured) return
+  try {
+    // Try a lightweight query that touches both columns
+    await db.$queryRaw`SELECT "passwordResetToken", "passwordResetExpires" FROM "User" LIMIT 0`
+    columnsEnsured = true
+    console.log('[Forgot Password] Reset columns verified')
+  } catch (err: any) {
+    console.log('[Forgot Password] Reset columns missing, adding them...')
+    try {
+      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
+      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
+      columnsEnsured = true
+      console.log('[Forgot Password] Reset columns added successfully')
+    } catch (alterErr: any) {
+      console.error('[Forgot Password] Failed to add columns:', alterErr?.message)
+      throw alterErr
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Ensure the database columns exist before doing anything
+    await ensureResetColumns()
+
     const body = await request.json()
     const { email } = body
 
@@ -21,7 +48,6 @@ export async function POST(request: NextRequest) {
     })
 
     // Always return success to prevent email enumeration attacks
-    // Even if user doesn't exist, we say "If that email exists, we sent a reset link"
     if (!user || !user.passwordHash) {
       return NextResponse.json({
         success: true,
@@ -39,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit: check if a reset token was created in the last 60 seconds
     if (user.passwordResetExpires) {
-      const lastResetSent = new Date(user.passwordResetExpires.getTime() - 60 * 60 * 1000) // expires is 1hr ahead, so sentAt = expires - 1hr
+      const lastResetSent = new Date(user.passwordResetExpires.getTime() - 60 * 60 * 1000)
       const secondsSinceLastReset = (Date.now() - lastResetSent.getTime()) / 1000
       if (secondsSinceLastReset < 60) {
         return NextResponse.json({
@@ -80,9 +106,10 @@ export async function POST(request: NextRequest) {
       message: 'If an account with that email exists, we have sent a password reset link.',
     })
   } catch (error: any) {
-    console.error('[Forgot Password] Error:', error)
+    console.error('[Forgot Password] Error:', error?.message || error)
+    console.error('[Forgot Password] Stack:', error?.stack)
     return NextResponse.json(
-      { error: 'Failed to process password reset request' },
+      { error: `Failed to process password reset request: ${error?.message || 'Unknown error'}` },
       { status: 500 }
     )
   }
