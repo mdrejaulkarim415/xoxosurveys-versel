@@ -64,16 +64,30 @@ export default function Home() {
   })
 
   // Handle email verification redirect from URL
+  const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const verifyStatus = params.get('verify')
 
-    if (verifyStatus === 'success') {
-      // Mark email as verified in the current session
-      setState(prev => ({
-        ...prev,
-        user: { ...prev.user, emailVerified: true },
-      }))
+    if (verifyStatus) {
+      const messages: Record<string, string> = {
+        'success': '✅ Your email has been verified successfully! You can now log in.',
+        'already-verified': 'ℹ️ Your email is already verified.',
+        'missing-token': '⚠️ Verification token is missing. Please check the link in your email.',
+        'invalid-token': '⚠️ Invalid verification link. Please request a new verification email.',
+        'token-expired': '⏰ Verification link has expired. Please request a new verification email.',
+        'error': '❌ An error occurred during verification. Please try again.',
+      }
+      setVerifyMessage(messages[verifyStatus] || 'Unknown verification status.')
+
+      if (verifyStatus === 'success') {
+        setState(prev => ({
+          ...prev,
+          user: { ...prev.user, emailVerified: true },
+        }))
+      }
+
       // Clean up URL
       window.history.replaceState({}, '', '/')
     }
@@ -158,6 +172,23 @@ export default function Home() {
 
   return (
     <AppContext.Provider value={{ state, setState, login, logout, setCurrentPage, refreshUser }}>
+      {verifyMessage && (
+        <div className="fixed top-0 left-0 right-0 z-[100] flex justify-center pt-4 px-4">
+          <div className={`max-w-md w-full p-4 rounded-xl shadow-lg border text-sm font-medium flex items-center justify-between gap-3 ${
+            verifyMessage.includes('✅') ? 'bg-green-50 border-green-200 text-green-800' :
+            verifyMessage.includes('ℹ️') ? 'bg-blue-50 border-blue-200 text-blue-800' :
+            'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            <span>{verifyMessage}</span>
+            <button
+              onClick={() => setVerifyMessage(null)}
+              className="text-current opacity-60 hover:opacity-100 transition-opacity text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       {!state.isLoggedIn ? (
         <AuthPage />
       ) : state.currentPage === 'admin' ? (

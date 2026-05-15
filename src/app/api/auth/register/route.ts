@@ -193,7 +193,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 14. Send verification email (non-blocking)
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+    // Build base URL from request headers (works on Vercel)
+    const host = request.headers.get('host')
+    const protocol = request.headers.get('x-forwarded-proto') || 'https'
+    const envBaseUrl = process.env.NEXT_PUBLIC_BASE_URL
+    const baseUrl = (envBaseUrl && envBaseUrl !== 'http://localhost:3000')
+      ? envBaseUrl
+      : (host ? `${protocol}://${host}` : 'http://localhost:3000')
     const verificationUrl = `${baseUrl}/api/auth/verify-email?token=${emailVerificationToken}`
 
     Promise.all([

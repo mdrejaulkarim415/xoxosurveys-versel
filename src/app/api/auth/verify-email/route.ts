@@ -1,13 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+function getBaseUrl(request: NextRequest): string {
+  // 1. Check env variable first
+  const envUrl = process.env.NEXT_PUBLIC_BASE_URL
+  if (envUrl && envUrl !== 'http://localhost:3000') {
+    return envUrl
+  }
+
+  // 2. Build from request headers (works on Vercel)
+  const host = request.headers.get('host')
+  const protocol = request.headers.get('x-forwarded-proto') || 'https'
+  if (host) {
+    return `${protocol}://${host}`
+  }
+
+  // 3. Fallback
+  return 'http://localhost:3000'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = request.nextUrl.searchParams.get('token')
+    const baseUrl = getBaseUrl(request)
 
     if (!token) {
       return NextResponse.redirect(
-        new URL('/?verify=missing-token', request.url)
+        new URL('/?verify=missing-token', baseUrl)
       )
     }
 
@@ -18,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     if (!user) {
       return NextResponse.redirect(
-        new URL('/?verify=invalid-token', request.url)
+        new URL('/?verify=invalid-token', baseUrl)
       )
     }
 
@@ -30,7 +49,7 @@ export async function GET(request: NextRequest) {
         data: { emailVerificationToken: null },
       })
       return NextResponse.redirect(
-        new URL('/?verify=already-verified', request.url)
+        new URL('/?verify=already-verified', baseUrl)
       )
     }
 
@@ -44,7 +63,7 @@ export async function GET(request: NextRequest) {
           data: { emailVerificationToken: null },
         })
         return NextResponse.redirect(
-          new URL('/?verify=token-expired', request.url)
+          new URL('/?verify=token-expired', baseUrl)
         )
       }
     }
@@ -73,12 +92,13 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      new URL('/?verify=success', request.url)
+      new URL('/?verify=success', baseUrl)
     )
   } catch (error) {
     console.error('[Verify Email] Error:', error)
+    const baseUrl = getBaseUrl(request)
     return NextResponse.redirect(
-      new URL('/?verify=error', request.url)
+      new URL('/?verify=error', baseUrl)
     )
   }
 }
