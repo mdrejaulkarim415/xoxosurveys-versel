@@ -38,7 +38,6 @@ interface SettingsState {
   defaultBlockProxy: boolean
   defaultMinFraudScore: number
   defaultCooldown: number
-  revtooEnabled: boolean
   emailTemplateCashoutApproved: string
   emailTemplateCashoutRejected: string
   emailTemplateFraudWarning: string
@@ -60,7 +59,6 @@ const defaultSettings: SettingsState = {
   defaultBlockProxy: true,
   defaultMinFraudScore: 50,
   defaultCooldown: 5,
-  revtooEnabled: true,
   emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
@@ -204,24 +202,21 @@ export function AdminSettings() {
                 <p className="text-[11px] text-[#999999] mt-1">Percentage of referral earnings that the referrer receives</p>
               </div>
 
-              {/* RevToo Survey Provider Toggle */}
+              {/* Survey Provider Management Note */}
               <div className="border-t border-[#E5E7EB] pt-5">
-                <h4 className="text-[13px] font-bold text-[#1A1A1A] mb-3">Survey Providers</h4>
-                <div className="flex items-center justify-between p-3 bg-[#F8FAFB] rounded-[8px]">
+                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
                   <div>
-                    <p className="text-[13px] font-medium text-[#1A1A1A] flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22B9CF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 11l3 3L22 4" />
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                    <p className="text-[13px] font-medium text-[#065F46] flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
                       </svg>
-                      RevToo Surveys
+                      Survey Provider Management
                     </p>
-                    <p className="text-[11px] text-[#999999]">Enable or disable the RevToo featured survey offer for all users</p>
+                    <p className="text-[11px] text-[#047857]">Enable/disable providers, change API keys & URLs from the Survey Walls page</p>
                   </div>
-                  <Switch
-                    checked={settings.revtooEnabled}
-                    onCheckedChange={(v) => updateSetting('revtooEnabled', v)}
-                  />
                 </div>
               </div>
             </CardContent>
