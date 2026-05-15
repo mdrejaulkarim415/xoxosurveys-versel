@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-const REVTOO_API_KEY = '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
-const REVTOO_API_URL = 'https://revtoo.com/api/offers/'
-const TARGET_OFFER_ID = 56443
+const DEFAULT_REVTOO_API_KEY = '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
+const DEFAULT_REVTOO_API_URL = 'https://revtoo.com/api/offers/'
+const DEFAULT_TARGET_OFFER_ID = 56443
 
 /**
- * Fetch the specific Revtoo survey offer (ID 56443) and generate redirect URL for the user
- * Checks admin setting revtooEnabled before returning offer
+ * Fetch the specific Revtoo survey offer and generate redirect URL for the user
+ * Checks SurveyWall.isActive from database + reads API key from wall config
  */
 export async function GET(request: NextRequest) {
   try {
@@ -18,16 +18,30 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
     }
 
-    // Check if RevToo is enabled in admin settings
-    const revtooSetting = await db.adminSettings.findUnique({
-      where: { key: 'revtooEnabled' },
+    // Check if RevToo wall exists and is active
+    const revtooWall = await db.surveyWall.findFirst({
+      where: { provider: 'revtoo' },
     })
-    if (revtooSetting && revtooSetting.value === 'false') {
+
+    if (!revtooWall || !revtooWall.isActive) {
       return NextResponse.json({ error: 'RevToo surveys are currently disabled', disabled: true }, { status: 403 })
     }
 
+    // Use API key from wall config or fallback to default
+    const apiKey = revtooWall.apiKey || DEFAULT_REVTOO_API_KEY
+    const apiUrl = revtooWall.endpointUrl
+      ? revtooWall.endpointUrl.replace(/\/offer\/\d+$/, '/api/offers/')
+      : DEFAULT_REVTOO_API_URL
+
+    // Parse config for target offer ID
+    let targetOfferId = DEFAULT_TARGET_OFFER_ID
+    try {
+      const config = JSON.parse(revtooWall.config || '{}')
+      if (config.targetOfferId) targetOfferId = config.targetOfferId
+    } catch {}
+
     // Fetch offers from Revtoo API
-    const response = await fetch(`${REVTOO_API_URL}?api_key=${REVTOO_API_KEY}`, {
+    const response = await fetch(`${apiUrl}?api_key=${apiKey}`, {
       next: { revalidate: 300 }, // Cache for 5 minutes
     })
 
@@ -43,7 +57,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Find the specific offer
-    const offer = data.offers?.find((o: { id: number }) => o.id === TARGET_OFFER_ID)
+    const offer = data.offers?.find((o: { id: number }) => o.id === targetOfferId)
 
     if (!offer) {
       return NextResponse.json({ error: 'Target offer not found' }, { status: 404 })
