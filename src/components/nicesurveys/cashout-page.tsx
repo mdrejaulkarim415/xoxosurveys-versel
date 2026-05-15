@@ -17,6 +17,10 @@ const giftCards = [
     brand2Color: '#FFFFFF',
     subtextColor: 'rgba(255,255,255,0.80)',
     priceColor: 'rgba(255,255,255,0.70)',
+    needsPaymentDetail: true,
+    paymentLabel: 'Binance ID',
+    paymentPlaceholder: 'Enter your Binance ID (e.g. 123456789)',
+    paymentType: 'text' as const,
     icon: (
       <div className="w-[36px] h-[36px] rounded-full bg-[#F0B90B] flex items-center justify-center flex-shrink-0">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="#181A20">
@@ -38,6 +42,10 @@ const giftCards = [
     brand2Color: '#FFFFFF',
     subtextColor: 'rgba(255,255,255,0.85)',
     priceColor: 'rgba(255,255,255,0.70)',
+    needsPaymentDetail: true,
+    paymentLabel: 'Litecoin Address',
+    paymentPlaceholder: 'Enter your LTC wallet address (starts with L or M)',
+    paymentType: 'text' as const,
     icon: (
       <div className="w-[36px] h-[36px] rounded-full bg-white flex items-center justify-center flex-shrink-0">
         <span className="text-[#345D9D] font-bold text-[16px]" style={{ fontFamily: 'var(--font-outfit)' }}>L</span>
@@ -57,6 +65,10 @@ const giftCards = [
     brand2Color: '#012169',
     subtextColor: 'rgba(255,255,255,0.80)',
     priceColor: 'rgba(255,255,255,0.70)',
+    needsPaymentDetail: true,
+    paymentLabel: 'PayPal Email',
+    paymentPlaceholder: 'Enter your PayPal email address',
+    paymentType: 'email' as const,
     icon: null,
   },
   {
@@ -72,6 +84,7 @@ const giftCards = [
     brand2Color: '#FFFFFF',
     subtextColor: 'rgba(255,255,255,0.90)',
     priceColor: 'rgba(255,255,255,0.80)',
+    needsPaymentDetail: false,
     icon: null,
   },
   {
@@ -87,6 +100,7 @@ const giftCards = [
     brand2Color: '#FFFFFF',
     subtextColor: 'rgba(255,255,255,0.90)',
     priceColor: 'rgba(255,255,255,0.80)',
+    needsPaymentDetail: false,
     icon: null,
   },
 ]
@@ -95,11 +109,28 @@ export function CashoutPage() {
   const { state, setState } = useApp()
   const [selectedCard, setSelectedCard] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
+  const [paymentDetail, setPaymentDetail] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [cashoutSuccess, setCashoutSuccess] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
+
+  // Validate payment detail based on card type
+  const isPaymentDetailValid = () => {
+    if (!selectedCardData?.needsPaymentDetail) return true
+    if (!paymentDetail.trim()) return false
+    if (selectedCardData.id === 'paypal') {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paymentDetail.trim())
+    }
+    if (selectedCardData.id === 'binance') {
+      return paymentDetail.trim().length >= 6
+    }
+    if (selectedCardData.id === 'litecoin') {
+      return paymentDetail.trim().length >= 20
+    }
+    return paymentDetail.trim().length > 0
+  }
 
   const displayedCards = showAll ? giftCards : giftCards.slice(0, 3)
   const selectedCardData = giftCards.find(c => c.id === selectedCard)
@@ -272,7 +303,7 @@ export function CashoutPage() {
         /* Selected Card - Amount Form */
         <div className="max-w-[400px]">
           <button
-            onClick={() => { setSelectedCard(null); setAmount(''); setShowConfirm(false) }}
+            onClick={() => { setSelectedCard(null); setAmount(''); setPaymentDetail(''); setShowConfirm(false) }}
             className="flex items-center gap-2 text-[14px] text-[#999999] hover:text-[#36383A] mb-4 transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -338,19 +369,43 @@ export function CashoutPage() {
               })}
             </div>
 
+            {/* Payment Detail Input - Binance ID / Litecoin Address / PayPal Email */}
+            {selectedCardData?.needsPaymentDetail && (
+              <div className="mb-6">
+                <label className="block text-[14px] font-medium text-[#36383A] mb-2">
+                  {selectedCardData.paymentLabel}
+                </label>
+                <input
+                  type={selectedCardData.paymentType || 'text'}
+                  value={paymentDetail}
+                  onChange={(e) => setPaymentDetail(e.target.value)}
+                  placeholder={selectedCardData.paymentPlaceholder}
+                  className="ns-input"
+                />
+                {paymentDetail && !isPaymentDetailValid() && (
+                  <p className="text-[12px] text-[#DC2626] mt-1.5">
+                    {selectedCardData.id === 'paypal' && 'Please enter a valid email address'}
+                    {selectedCardData.id === 'binance' && 'Binance ID must be at least 6 characters'}
+                    {selectedCardData.id === 'litecoin' && 'Litecoin address must be at least 20 characters'}
+                  </p>
+                )}
+              </div>
+            )}
+
             {!showConfirm ? (
               <button
                 onClick={() => {
                   if (!state.user.emailVerified) return
+                  if (!isPaymentDetailValid()) return
                   const amountNum = parseFloat(amount)
                   if (amountNum && amountNum >= (selectedCardData?.min || 5) && amountNum <= state.user.balance) {
                     setShowConfirm(true)
                   }
                 }}
-                disabled={!state.user.emailVerified || !amount || parseFloat(amount) > state.user.balance || parseFloat(amount) < (selectedCardData?.min || 5)}
+                disabled={!state.user.emailVerified || !amount || parseFloat(amount) > state.user.balance || parseFloat(amount) < (selectedCardData?.min || 5) || !isPaymentDetailValid()}
                 className="ns-btn-primary w-full h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {!state.user.emailVerified ? 'Verify Email First' : 'Continue'}
+                {!state.user.emailVerified ? 'Verify Email First' : !isPaymentDetailValid() && selectedCardData?.needsPaymentDetail ? `Enter ${selectedCardData?.paymentLabel}` : 'Continue'}
               </button>
             ) : (
               <div className="space-y-3">
@@ -359,10 +414,16 @@ export function CashoutPage() {
                     <span className="text-[#999999]">Gift Card</span>
                     <span className="font-medium text-[#36383A]">{selectedCardData?.name}</span>
                   </div>
-                  <div className="flex justify-between text-[14px]">
+                  <div className="flex justify-between text-[14px] mb-1">
                     <span className="text-[#999999]">Amount</span>
                     <span className="font-medium text-[#36383A]">${parseFloat(amount).toFixed(2)}</span>
                   </div>
+                  {selectedCardData?.needsPaymentDetail && paymentDetail && (
+                    <div className="flex justify-between text-[14px]">
+                      <span className="text-[#999999]">{selectedCardData.paymentLabel}</span>
+                      <span className="font-medium text-[#36383A] truncate ml-3 max-w-[200px]">{paymentDetail}</span>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleCashout}

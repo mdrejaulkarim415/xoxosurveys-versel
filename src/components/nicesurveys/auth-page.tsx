@@ -792,17 +792,27 @@ export function AuthPage() {
                   {/* Switch Auth Mode */}
                   <div className="text-center mt-5 text-[14px] text-[#999999]">
                     {isLogin ? (
-                      <>You don&apos;t have an account?{' '}
-                        <button onClick={() => { setIsLogin(false); setError(null) }} className="text-[#0FBCC0] font-semibold hover:underline">
-                          Register now
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>You don&apos;t have an account?</span>
+                        <button
+                          onClick={() => { setIsLogin(false); setError(null) }}
+                          className="font-semibold text-white px-4 py-1.5 rounded-[8px] text-[13px] transition-all hover:opacity-90"
+                          style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                        >
+                          Sign up now
                         </button>
-                      </>
+                      </div>
                     ) : (
-                      <>Already have an account?{' '}
-                        <button onClick={() => { setIsLogin(true); setError(null) }} className="text-[#0FBCC0] font-semibold hover:underline">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Already have an account?</span>
+                        <button
+                          onClick={() => { setIsLogin(true); setError(null) }}
+                          className="font-semibold text-white px-4 py-1.5 rounded-[8px] text-[13px] transition-all hover:opacity-90"
+                          style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                        >
                           Login
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
 
