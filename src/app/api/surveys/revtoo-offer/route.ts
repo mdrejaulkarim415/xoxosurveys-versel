@@ -6,8 +6,22 @@ const DEFAULT_REVTOO_API_URL = 'https://revtoo.com/api/offers/'
 const DEFAULT_TARGET_OFFER_ID = 56443
 
 /**
- * Fetch the specific Revtoo survey offer and generate redirect URL for the user
- * Reads all Featured Offer config from admin settings (API key, URL, customization)
+ * Remove API-key-like strings from text.
+ * Strips long alphanumeric strings (20+ chars with no spaces) that look like API keys/secrets.
+ */
+function sanitizeApiText(text: string | null | undefined): string {
+  if (!text) return ''
+  // Remove strings that look like API keys: 20+ consecutive alphanumeric chars (no spaces/words)
+  const cleaned = text.replace(/\b[a-z0-9]{20,}\b/gi, '').trim()
+  // Clean up leftover artifacts (double spaces, dangling punctuation)
+  return cleaned.replace(/\s{2,}/g, ' ').replace(/^\s*[,\-–—]\s*/, '').replace(/\s*[,\-–—]\s*$/, '').trim()
+}
+
+/**
+ * Fetch the specific Revtoo survey offer for the Featured Offer.
+ * Returns offer data + customization + a SAFE redirect proxy URL.
+ * The API key is NEVER sent to the frontend - the redirect is handled
+ * server-side via /api/surveys/revtoo-redirect
  */
 export async function GET(request: NextRequest) {
   try {
@@ -89,15 +103,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Target offer not found' }, { status: 404 })
     }
 
-    // Generate the redirect URL with user's ID
-    const redirectUrl = offer.url.replace('[USER_ID]', userId)
+    // IMPORTANT: Return a SAFE proxy redirect URL instead of the raw URL
+    // This ensures the API key is never exposed to the frontend/user.
+    // The actual redirect with API key is handled server-side by /api/surveys/revtoo-redirect
+    const origin = new URL(request.url).origin
+    const safeRedirectUrl = `${origin}/api/surveys/revtoo-redirect?user_id=${encodeURIComponent(userId)}`
+
+    // Sanitize API text to remove any API key/secret strings
+    const safeTitle = settingsMap.featuredOfferTitle || sanitizeApiText(offer.title) || 'Featured Survey'
+    const safeDescription = settingsMap.featuredOfferDescription || sanitizeApiText(offer.description) || 'Complete this survey to earn rewards'
 
     // Build response with customization overrides
     return NextResponse.json({
       offer: {
         id: offer.id,
-        title: settingsMap.featuredOfferTitle || offer.title,
-        description: settingsMap.featuredOfferDescription || offer.description,
+        title: safeTitle,
+        description: safeDescription,
         image: offer.image,
         category: offer.category,
         countries: offer.countries,
@@ -114,8 +135,8 @@ export async function GET(request: NextRequest) {
         time: settingsMap.featuredOfferTime || '5-20 Min',
         payout: settingsMap.featuredOfferPayout || '',
       },
-      redirectUrl,
-      postbackUrl: `${new URL(request.url).origin}/api/surveys/revtoo-postback`,
+      // Safe proxy URL - no API key exposed
+      redirectUrl: safeRedirectUrl,
     })
   } catch (error) {
     console.error('[Revtoo Offer] Error:', error)
