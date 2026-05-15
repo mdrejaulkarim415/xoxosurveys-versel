@@ -13,12 +13,17 @@ export async function GET() {
       },
     })
 
-    const wallsWithStats = walls.map((wall) => ({
-      ...wall,
-      surveysAvailable: wall._count.surveys,
-      completions: wall.surveys.reduce((sum, s) => sum + s.currentCompletions, 0),
-      revenue: wall.surveys.reduce((sum, s) => sum + s.currentCompletions * s.reward, 0),
-    }))
+    const wallsWithStats = walls.map((wall) => {
+      let configParsed: Record<string, unknown> = {}
+      try { configParsed = JSON.parse(wall.config || '{}') } catch { /* ignore */ }
+      return {
+        ...wall,
+        userRevenuePercent: configParsed.userRevenuePercent || 0,
+        surveysAvailable: wall._count.surveys,
+        completions: wall.surveys.reduce((sum, s) => sum + s.currentCompletions, 0),
+        revenue: wall.surveys.reduce((sum, s) => sum + s.currentCompletions * s.reward, 0),
+      }
+    })
 
     return NextResponse.json(wallsWithStats)
   } catch (error) {
@@ -34,6 +39,7 @@ export async function POST(request: Request) {
       name, provider, apiKey, apiSecret, endpointUrl, isActive,
       priority, minPayout, maxPayout, description, config,
       requireVerification, blockVpn, blockProxy, minFraudScore, cooldownMinutes,
+      userRevenuePercent,
     } = body
 
     if (!name || !provider) {
@@ -52,7 +58,7 @@ export async function POST(request: Request) {
         minPayout: minPayout ?? 0.01,
         maxPayout: maxPayout ?? 5.0,
         description: description || null,
-        config: config ? JSON.stringify(config) : '{}',
+        config: config ? JSON.stringify(config) : JSON.stringify({ userRevenuePercent: userRevenuePercent || 0 }),
         requireVerification: requireVerification ?? 0,
         blockVpn: blockVpn ?? true,
         blockProxy: blockProxy ?? true,

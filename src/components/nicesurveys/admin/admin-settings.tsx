@@ -50,6 +50,7 @@ interface SettingsState {
   featuredOfferApiUrl: string
   featuredOfferApiSecret: string
   showProvidersSection: boolean
+  defaultUserRevenuePercent: number
   emailTemplateCashoutApproved: string
   emailTemplateCashoutRejected: string
   emailTemplateFraudWarning: string
@@ -82,6 +83,7 @@ const defaultSettings: SettingsState = {
   featuredOfferApiUrl: '',
   featuredOfferApiSecret: '',
   showProvidersSection: true,
+  defaultUserRevenuePercent: 70,
   emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
@@ -135,6 +137,22 @@ export function AdminSettings() {
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
     setSaved(false)
+  }
+
+  // Auto-save a single setting immediately (for toggles)
+  const autoSaveSetting = async <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      console.error('Auto-save setting error:', err)
+    }
   }
 
   const handleSave = async () => {
@@ -244,7 +262,7 @@ export function AdminSettings() {
                   </div>
                   <Switch
                     checked={settings.featuredOfferEnabled}
-                    onCheckedChange={(v) => updateSetting('featuredOfferEnabled', v)}
+                    onCheckedChange={(v) => autoSaveSetting('featuredOfferEnabled', v)}
                   />
                 </div>
 
@@ -365,6 +383,47 @@ export function AdminSettings() {
                 )}
               </div>
 
+              {/* Revenue Share Setting */}
+              <div className="border-t border-[#E5E7EB] pt-5">
+                <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2 mb-3">
+                  <DollarSign size={14} className="text-[#10B981]" /> Revenue Share
+                </h4>
+                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20 mb-3">
+                  <div>
+                    <p className="text-[13px] font-medium text-[#065F46]">User Revenue Share: <span className="text-[16px] font-bold text-[#10B981]">{settings.defaultUserRevenuePercent}%</span></p>
+                    <p className="text-[11px] text-[#047857]">
+                      User gets {settings.defaultUserRevenuePercent}% — Admin keeps {100 - settings.defaultUserRevenuePercent}% of each survey payout
+                    </p>
+                  </div>
+                </div>
+                <div className="max-w-[300px]">
+                  <Label className="text-[12px] font-medium">User Gets (%) — Admin Keeps the Rest</Label>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <input
+                      type="range"
+                      min={10}
+                      max={95}
+                      step={1}
+                      value={settings.defaultUserRevenuePercent}
+                      onChange={(e) => updateSetting('defaultUserRevenuePercent', Number(e.target.value))}
+                      className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, #10B981 ${settings.defaultUserRevenuePercent}%, #E5E7EB ${settings.defaultUserRevenuePercent}%)`
+                      }}
+                    />
+                    <Input
+                      type="number"
+                      min={10}
+                      max={95}
+                      value={settings.defaultUserRevenuePercent}
+                      onChange={(e) => updateSetting('defaultUserRevenuePercent', Math.min(95, Math.max(10, Number(e.target.value))))}
+                      className="h-9 text-[13px] w-[70px] text-center"
+                    />
+                  </div>
+                  <p className="text-[10px] text-[#999999] mt-1">This is the global default. You can override per survey wall in Survey Walls settings.</p>
+                </div>
+              </div>
+
               {/* Survey Provider Section Visibility */}
               <div className="border-t border-[#E5E7EB] pt-5">
                 <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2 mb-3">
@@ -382,7 +441,7 @@ export function AdminSettings() {
                   </div>
                   <Switch
                     checked={settings.showProvidersSection}
-                    onCheckedChange={(v) => updateSetting('showProvidersSection', v)}
+                    onCheckedChange={(v) => autoSaveSetting('showProvidersSection', v)}
                   />
                 </div>
               </div>

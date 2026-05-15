@@ -24,6 +24,17 @@ function sanitizeApiText(text: string | null | undefined): string {
   return cleaned.replace(/\s{2,}/g, ' ').replace(/^\s*[,\-–—]\s*/, '').replace(/\s*[,\-–—]\s*$/, '').trim()
 }
 
+/** Get user revenue percent from wall config, falling back to global setting, then 70% */
+function getUserRevenuePercent(wallConfig: string, globalDefault?: number): number {
+  try {
+    const parsed = JSON.parse(wallConfig || '{}')
+    if (parsed.userRevenuePercent && Number(parsed.userRevenuePercent) > 0) {
+      return Number(parsed.userRevenuePercent)
+    }
+  } catch { /* ignore */ }
+  return globalDefault || 70
+}
+
 interface NormalizedOffer {
   id: string            // composite: provider-externalId
   externalId: string
@@ -47,9 +58,10 @@ interface NormalizedOffer {
  * Uses the same pattern as revtoo-offer/route.ts but fetches ALL offers.
  */
 async function fetchRevTooOffers(
-  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null; config?: string },
   userId: string,
   origin: string,
+  globalRevenuePercent?: number,
 ): Promise<NormalizedOffer[]> {
   const DEFAULT_API_KEY = '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
   const DEFAULT_API_URL = 'https://revtoo.com/api/offers/'
@@ -100,7 +112,8 @@ async function fetchRevTooOffers(
         loa?: string | number
       }) => {
         const payoutValue = parseFloat(String(offer.payout || offer.reward || '0')) || 0
-        const rewardValue = payoutValue * 0.7  // 70% to user
+        const userPercent = getUserRevenuePercent(wall.config || '{}', globalRevenuePercent) / 100
+        const rewardValue = payoutValue * userPercent
         const timeMin = parseInt(String(offer.time || offer.duration || offer.loa || '10')) || 10
 
         return {
@@ -130,9 +143,10 @@ async function fetchRevTooOffers(
  * CPX Research API: https://api.cpx-research.com/v1/surveys?api_key=XXX&user_id=XXX
  */
 async function fetchCpxOffers(
-  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null; config?: string },
   userId: string,
   origin: string,
+  globalRevenuePercent?: number,
 ): Promise<NormalizedOffer[]> {
   if (!wall.apiKey || !wall.endpointUrl) return []
 
@@ -165,7 +179,8 @@ async function fetchCpxOffers(
       rating?: number
     }) => {
       const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
-      const rewardValue = payoutValue * 0.7
+      const userPercent = getUserRevenuePercent(wall.config || '{}', globalRevenuePercent) / 100
+      const rewardValue = payoutValue * userPercent
       const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
       const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
 
@@ -199,9 +214,10 @@ async function fetchCpxOffers(
  * BitLabs API: https://api.bitlabs.com/v1/surveys?api_key=XXX&uid=XXX
  */
 async function fetchBitlabsOffers(
-  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null; config?: string },
   userId: string,
   origin: string,
+  globalRevenuePercent?: number,
 ): Promise<NormalizedOffer[]> {
   if (!wall.apiKey || !wall.endpointUrl) return []
 
@@ -234,7 +250,8 @@ async function fetchBitlabsOffers(
       rating?: number
     }) => {
       const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
-      const rewardValue = payoutValue * 0.7
+      const userPercent = getUserRevenuePercent(wall.config || '{}', globalRevenuePercent) / 100
+      const rewardValue = payoutValue * userPercent
       const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
       const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
 
@@ -267,9 +284,10 @@ async function fetchBitlabsOffers(
  * Inbrain API: https://api.inbrain.ai/v1/surveys?appId=XXX&userId=XXX
  */
 async function fetchInbrainOffers(
-  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null; config?: string },
   userId: string,
   origin: string,
+  globalRevenuePercent?: number,
 ): Promise<NormalizedOffer[]> {
   if (!wall.apiKey || !wall.endpointUrl) return []
 
@@ -302,7 +320,8 @@ async function fetchInbrainOffers(
       rating?: number
     }) => {
       const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
-      const rewardValue = payoutValue * 0.7
+      const userPercent = getUserRevenuePercent(wall.config || '{}', globalRevenuePercent) / 100
+      const rewardValue = payoutValue * userPercent
       const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
       const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
 
@@ -335,9 +354,10 @@ async function fetchInbrainOffers(
  * Custom provider: just uses the endpointUrl + user_id
  */
 async function fetchCustomOffers(
-  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null },
+  wall: { id: string; name: string; apiKey: string | null; endpointUrl: string | null; config?: string },
   userId: string,
   origin: string,
+  globalRevenuePercent?: number,
 ): Promise<NormalizedOffer[]> {
   if (!wall.endpointUrl) return []
 
@@ -370,7 +390,8 @@ async function fetchCustomOffers(
       rating?: number
     }) => {
       const payoutValue = parseFloat(String(survey.payout || survey.cpi || survey.value || '0')) || 0
-      const rewardValue = payoutValue * 0.7
+      const userPercent = getUserRevenuePercent(wall.config || '{}', globalRevenuePercent) / 100
+      const rewardValue = payoutValue * userPercent
       const timeMin = parseInt(String(survey.time || survey.duration || survey.loa || '10')) || 10
       const externalId = String(survey.id || survey.survey_id || Math.random().toString(36).slice(2))
 
@@ -432,8 +453,16 @@ export async function GET(request: NextRequest) {
         apiKey: true,
         apiSecret: true,
         endpointUrl: true,
+        config: true,
       },
     })
+
+    // Get global revenue share setting
+    let globalRevenuePercent = 70
+    try {
+      const revSetting = await db.adminSettings.findUnique({ where: { key: 'defaultUserRevenuePercent' } })
+      if (revSetting) globalRevenuePercent = Number(revSetting.value) || 70
+    } catch { /* ignore */ }
 
     const origin = new URL(request.url).origin
 
@@ -441,16 +470,16 @@ export async function GET(request: NextRequest) {
     const fetchPromises = walls.map(async (wall) => {
       switch (wall.provider) {
         case 'revtoo':
-          return fetchRevTooOffers(wall, userId, origin)
+          return fetchRevTooOffers(wall, userId, origin, globalRevenuePercent)
         case 'cpx-research':
-          return fetchCpxOffers(wall, userId, origin)
+          return fetchCpxOffers(wall, userId, origin, globalRevenuePercent)
         case 'bitlabs':
-          return fetchBitlabsOffers(wall, userId, origin)
+          return fetchBitlabsOffers(wall, userId, origin, globalRevenuePercent)
         case 'inbrain':
-          return fetchInbrainOffers(wall, userId, origin)
+          return fetchInbrainOffers(wall, userId, origin, globalRevenuePercent)
         case 'custom':
         default:
-          return fetchCustomOffers(wall, userId, origin)
+          return fetchCustomOffers(wall, userId, origin, globalRevenuePercent)
       }
     })
 

@@ -56,18 +56,8 @@ interface SurveyWall {
   surveysAvailable: number
   completions: number
   revenue: number
+  userRevenuePercent: number
   createdAt: string
-}
-
-// Visibility settings stored in config JSON
-interface WallVisibility {
-  showProviderCard: boolean
-  showIndividualOffers: boolean
-}
-
-const defaultVisibility: WallVisibility = {
-  showProviderCard: true,
-  showIndividualOffers: true,
 }
 
 const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'revenue' | 'createdAt'> = {
@@ -85,6 +75,7 @@ const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'r
   blockProxy: true,
   minFraudScore: 50,
   cooldownMinutes: 5,
+  userRevenuePercent: 0, // 0 = use global default
 }
 
 export function AdminSurveyWalls() {
@@ -96,7 +87,6 @@ export function AdminSurveyWalls() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'fail' | null>>({})
-  const [visibility, setVisibility] = useState<Record<string, WallVisibility>>({})
 
   const fetchWalls = useCallback(async () => {
     try {
@@ -139,6 +129,7 @@ export function AdminSurveyWalls() {
       blockProxy: wall.blockProxy,
       minFraudScore: wall.minFraudScore,
       cooldownMinutes: wall.cooldownMinutes,
+      userRevenuePercent: wall.userRevenuePercent || 0,
     })
     setEditWall(wall)
     setShowForm(true)
@@ -198,36 +189,11 @@ export function AdminSurveyWalls() {
   const testConnection = async (wall: SurveyWall) => {
     setTesting(wall.id)
     setTestResults((prev) => ({ ...prev, [wall.id]: null }))
+    // Simulate API test
     await new Promise((r) => setTimeout(r, 1500))
     const success = Math.random() > 0.3
     setTestResults((prev) => ({ ...prev, [wall.id]: success ? 'success' : 'fail' }))
     setTesting(null)
-  }
-
-  // Handle visibility toggle for a wall
-  const handleVisibilityChange = async (wallId: string, key: keyof WallVisibility, value: boolean) => {
-    // Update local state immediately
-    setVisibility((prev) => ({
-      ...prev,
-      [wallId]: {
-        ...(prev[wallId] || defaultVisibility),
-        [key]: value,
-      },
-    }))
-
-    // Save to database via config JSON
-    try {
-      const currentConfig = visibility[wallId] || defaultVisibility
-      const newConfig = { ...currentConfig, [key]: value }
-
-      await fetch(`/api/admin/survey-walls/${wallId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: JSON.stringify(newConfig) }),
-      })
-    } catch (err) {
-      console.error('Visibility change error:', err)
-    }
   }
 
   const getProviderColor = (provider: string) => {
@@ -322,6 +288,12 @@ export function AdminSurveyWalls() {
                   <span className="font-medium text-[#1A1A1A]">${wall.minPayout.toFixed(2)} — ${wall.maxPayout.toFixed(2)}</span>
                 </div>
 
+                {/* Revenue Share */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[#999999]">Revenue share:</span>
+                  <span className="font-medium text-[#10B981]">User {wall.userRevenuePercent || 'Default'}% / Admin {wall.userRevenuePercent ? (100 - wall.userRevenuePercent) + '%' : 'Default'}</span>
+                </div>
+
                 {/* Anti-Fraud */}
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="text-[#999999]">Fraud threshold:</span>
@@ -337,26 +309,6 @@ export function AdminSurveyWalls() {
                   ) : (
                     <Badge className="bg-[#F5F5F5] text-[#999999]">{wall.endpointUrl ? 'Not tested' : 'No endpoint'}</Badge>
                   )}
-                </div>
-
-                {/* Visibility Toggles */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-2 bg-[#F0FDFB] rounded-[6px]">
-                    <span className="text-[11px] font-medium text-[#065F46]">Show Provider Card</span>
-                    <Switch
-                      checked={visibility[wall.id]?.showProviderCard !== false}
-                      onCheckedChange={(v) => handleVisibilityChange(wall.id, 'showProviderCard', v)}
-                      className="scale-75"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-[#F0FDFB] rounded-[6px]">
-                    <span className="text-[11px] font-medium text-[#065F46]">Show Individual Surveys</span>
-                    <Switch
-                      checked={visibility[wall.id]?.showIndividualOffers !== false}
-                      onCheckedChange={(v) => handleVisibilityChange(wall.id, 'showIndividualOffers', v)}
-                      className="scale-75"
-                    />
-                  </div>
                 </div>
 
                 {/* Actions */}
@@ -493,7 +445,7 @@ export function AdminSurveyWalls() {
             {/* Payout Settings */}
             <div className="space-y-3">
               <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2">
-                <DollarSign size={14} className="text-[#10B981]" /> Payout Settings
+                <DollarSign size={14} className="text-[#10B981]" /> Payout & Revenue Settings
               </h4>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -516,6 +468,39 @@ export function AdminSurveyWalls() {
                     className="h-9 text-[13px]"
                   />
                 </div>
+              </div>
+              <div>
+                <Label className="text-[12px]">User Revenue % (0 = use global default)</Label>
+                <div className="flex items-center gap-3 mt-1">
+                  <input
+                    type="range"
+                    min={0}
+                    max={95}
+                    step={1}
+                    value={formData.userRevenuePercent}
+                    onChange={(e) => setFormData((p) => ({ ...p, userRevenuePercent: Number(e.target.value) }))}
+                    className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+                    style={{
+                      background: formData.userRevenuePercent === 0
+                        ? '#E5E7EB'
+                        : `linear-gradient(to right, #10B981 ${formData.userRevenuePercent}%, #E5E7EB ${formData.userRevenuePercent}%)`
+                    }}
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={95}
+                    value={formData.userRevenuePercent}
+                    onChange={(e) => setFormData((p) => ({ ...p, userRevenuePercent: Math.min(95, Math.max(0, Number(e.target.value))) }))}
+                    className="h-9 text-[13px] w-[70px] text-center"
+                  />
+                </div>
+                <p className="text-[10px] text-[#999999] mt-1">
+                  {formData.userRevenuePercent === 0
+                    ? 'Using global default (set in Settings page)'
+                    : `User gets ${formData.userRevenuePercent}% — Admin keeps ${100 - formData.userRevenuePercent}%`
+                  }
+                </p>
               </div>
             </div>
 
