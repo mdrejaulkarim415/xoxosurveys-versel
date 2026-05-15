@@ -59,6 +59,17 @@ interface SurveyWall {
   createdAt: string
 }
 
+// Visibility settings stored in config JSON
+interface WallVisibility {
+  showProviderCard: boolean
+  showIndividualOffers: boolean
+}
+
+const defaultVisibility: WallVisibility = {
+  showProviderCard: true,
+  showIndividualOffers: true,
+}
+
 const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'revenue' | 'createdAt'> = {
   name: '',
   provider: 'cpx-research',
@@ -85,6 +96,7 @@ export function AdminSurveyWalls() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'fail' | null>>({})
+  const [visibility, setVisibility] = useState<Record<string, WallVisibility>>({})
 
   const fetchWalls = useCallback(async () => {
     try {
@@ -186,11 +198,36 @@ export function AdminSurveyWalls() {
   const testConnection = async (wall: SurveyWall) => {
     setTesting(wall.id)
     setTestResults((prev) => ({ ...prev, [wall.id]: null }))
-    // Simulate API test
     await new Promise((r) => setTimeout(r, 1500))
     const success = Math.random() > 0.3
     setTestResults((prev) => ({ ...prev, [wall.id]: success ? 'success' : 'fail' }))
     setTesting(null)
+  }
+
+  // Handle visibility toggle for a wall
+  const handleVisibilityChange = async (wallId: string, key: keyof WallVisibility, value: boolean) => {
+    // Update local state immediately
+    setVisibility((prev) => ({
+      ...prev,
+      [wallId]: {
+        ...(prev[wallId] || defaultVisibility),
+        [key]: value,
+      },
+    }))
+
+    // Save to database via config JSON
+    try {
+      const currentConfig = visibility[wallId] || defaultVisibility
+      const newConfig = { ...currentConfig, [key]: value }
+
+      await fetch(`/api/admin/survey-walls/${wallId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: JSON.stringify(newConfig) }),
+      })
+    } catch (err) {
+      console.error('Visibility change error:', err)
+    }
   }
 
   const getProviderColor = (provider: string) => {
@@ -300,6 +337,26 @@ export function AdminSurveyWalls() {
                   ) : (
                     <Badge className="bg-[#F5F5F5] text-[#999999]">{wall.endpointUrl ? 'Not tested' : 'No endpoint'}</Badge>
                   )}
+                </div>
+
+                {/* Visibility Toggles */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-2 bg-[#F0FDFB] rounded-[6px]">
+                    <span className="text-[11px] font-medium text-[#065F46]">Show Provider Card</span>
+                    <Switch
+                      checked={visibility[wall.id]?.showProviderCard !== false}
+                      onCheckedChange={(v) => handleVisibilityChange(wall.id, 'showProviderCard', v)}
+                      className="scale-75"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-[#F0FDFB] rounded-[6px]">
+                    <span className="text-[11px] font-medium text-[#065F46]">Show Individual Surveys</span>
+                    <Switch
+                      checked={visibility[wall.id]?.showIndividualOffers !== false}
+                      onCheckedChange={(v) => handleVisibilityChange(wall.id, 'showIndividualOffers', v)}
+                      className="scale-75"
+                    />
+                  </div>
                 </div>
 
                 {/* Actions */}

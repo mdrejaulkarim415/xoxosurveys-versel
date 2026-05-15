@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         maxPayout: true,
         apiKey: true,
         endpointUrl: true,
+        config: true,
         _count: { select: { surveys: { where: { isActive: true } } } },
       },
     })
@@ -42,56 +43,68 @@ export async function GET(request: NextRequest) {
     const postbackUrl = `${origin}/api/surveys/callback`
 
     // Generate redirect URLs based on provider type
-    const wallsWithUrls = walls.map(wall => {
-      let redirectUrl = ''
+    // Filter out walls where showProviderCard is false
+    const wallsWithUrls = walls
+      .map(wall => {
+        // Check if provider card should be shown (default: true)
+        let showProviderCard = true
+        try {
+          const config = JSON.parse(wall.config || '{}')
+          showProviderCard = config.showProviderCard !== false
+        } catch {
+          // Default to showing
+        }
 
-      switch (wall.provider) {
-        case 'revtoo':
-          redirectUrl = `https://revtoo.com/offer/56443?user_id=${userId}`
-          break
-        case 'cpx-research':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&user_id=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?user_id=${userId}`
-          }
-          break
-        case 'bitlabs':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&uid=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?uid=${userId}`
-          }
-          break
-        case 'inbrain':
-          if (wall.endpointUrl && wall.apiKey) {
-            redirectUrl = `${wall.endpointUrl}?appId=${wall.apiKey}&userId=${userId}`
-          } else if (wall.endpointUrl) {
-            redirectUrl = `${wall.endpointUrl}?userId=${userId}`
-          }
-          break
-        case 'custom':
-        default:
-          if (wall.endpointUrl) {
-            // Append user_id as query param
-            const sep = wall.endpointUrl.includes('?') ? '&' : '?'
-            redirectUrl = `${wall.endpointUrl}${sep}user_id=${userId}`
-          }
-          break
-      }
+        let redirectUrl = ''
 
-      return {
-        id: wall.id,
-        name: wall.name,
-        provider: wall.provider,
-        description: wall.description,
-        minPayout: wall.minPayout,
-        maxPayout: wall.maxPayout,
-        surveyCount: wall._count.surveys,
-        redirectUrl,
-        postbackUrl,
-      }
-    })
+        switch (wall.provider) {
+          case 'revtoo':
+            redirectUrl = `${origin}/api/surveys/revtoo-redirect?user_id=${userId}`
+            break
+          case 'cpx-research':
+            if (wall.endpointUrl && wall.apiKey) {
+              redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&user_id=${userId}`
+            } else if (wall.endpointUrl) {
+              redirectUrl = `${wall.endpointUrl}?user_id=${userId}`
+            }
+            break
+          case 'bitlabs':
+            if (wall.endpointUrl && wall.apiKey) {
+              redirectUrl = `${wall.endpointUrl}?api_key=${wall.apiKey}&uid=${userId}`
+            } else if (wall.endpointUrl) {
+              redirectUrl = `${wall.endpointUrl}?uid=${userId}`
+            }
+            break
+          case 'inbrain':
+            if (wall.endpointUrl && wall.apiKey) {
+              redirectUrl = `${wall.endpointUrl}?appId=${wall.apiKey}&userId=${userId}`
+            } else if (wall.endpointUrl) {
+              redirectUrl = `${wall.endpointUrl}?userId=${userId}`
+            }
+            break
+          case 'custom':
+          default:
+            if (wall.endpointUrl) {
+              const sep = wall.endpointUrl.includes('?') ? '&' : '?'
+              redirectUrl = `${wall.endpointUrl}${sep}user_id=${userId}`
+            }
+            break
+        }
+
+        return {
+          id: wall.id,
+          name: wall.name,
+          provider: wall.provider,
+          description: wall.description,
+          minPayout: wall.minPayout,
+          maxPayout: wall.maxPayout,
+          surveyCount: wall._count.surveys,
+          redirectUrl,
+          postbackUrl,
+          showProviderCard,
+        }
+      })
+      .filter(wall => wall.showProviderCard !== false) // Hide walls where showProviderCard=false
 
     return NextResponse.json(wallsWithUrls)
   } catch (error) {
