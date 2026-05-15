@@ -9,20 +9,18 @@ let columnsEnsured = false
 async function ensureResetColumns() {
   if (columnsEnsured) return
   try {
-    // Try a lightweight query that touches both columns
-    await db.$queryRaw`SELECT "passwordResetToken", "passwordResetExpires" FROM "User" LIMIT 0`
+    await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
+    await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
     columnsEnsured = true
-    console.log('[Forgot Password] Reset columns verified')
+    console.log('[Forgot Password] Reset columns ensured')
   } catch (err: any) {
-    console.log('[Forgot Password] Reset columns missing, adding them...')
-    try {
-      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
-      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
+    // Columns might already exist, that's fine
+    if (err?.message?.includes('already exists') || err?.code === '42701') {
       columnsEnsured = true
-      console.log('[Forgot Password] Reset columns added successfully')
-    } catch (alterErr: any) {
-      console.error('[Forgot Password] Failed to add columns:', alterErr?.message)
-      throw alterErr
+      console.log('[Forgot Password] Reset columns already exist')
+    } else {
+      console.error('[Forgot Password] Column ensure error:', err?.message)
+      throw err
     }
   }
 }
@@ -42,18 +40,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find user by email
-    const user = await db.user.findUnique({
-      where: { email },
-    })
+    // Find user by email using raw SQL (to avoid Prisma Client field issues)
+    const users: any[] = await db.$queryRaw`
+      SELECT id, "passwordHash", "isBanned", "passwordResetExpires"
+      FROM "User"
+      WHERE email = ${email}
+      LIMIT 1
+    `
 
     // Always return success to prevent email enumeration attacks
-    if (!user || !user.passwordHash) {
+    if (!users.length || !users[0].passwordHash) {
       return NextResponse.json({
         success: true,
         message: 'If an account with that email exists, we have sent a password reset link.',
       })
     }
+
+    const user = users[0]
 
     // Check if user is banned
     if (user.isBanned) {
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit: check if a reset token was created in the last 60 seconds
     if (user.passwordResetExpires) {
-      const lastResetSent = new Date(user.passwordResetExpires.getTime() - 60 * 60 * 1000)
+      const lastResetSent = new Date(new Date(user.passwordResetExpires).getTime() - 60 * 60 * 1000)
       const secondsSinceLastReset = (Date.now() - lastResetSent.getTime()) / 1000
       if (secondsSinceLastReset < 60) {
         return NextResponse.json({
@@ -79,20 +82,19 @@ export async function POST(request: NextRequest) {
     const resetToken = crypto.randomBytes(32).toString('hex')
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000) // 1 hour from now
 
-    // Save token to user record
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        passwordResetToken: resetToken,
-        passwordResetExpires: resetExpires,
-      },
-    })
+    // Save token to user record using raw SQL
+    await db.$executeRaw`
+      UPDATE "User"
+      SET "passwordResetToken" = ${resetToken},
+          "passwordResetExpires" = ${resetExpires}
+      WHERE id = ${user.id}
+    `
 
     // Build the reset URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://xoxosurveys.com'
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`
 
-    // Send the reset email (non-blocking — don't wait for email to succeed)
+    // Send the reset email (non-blocking)
     sendPasswordResetEmail(email, resetUrl).then((sent) => {
       if (!sent) {
         console.error(`[Forgot Password] Failed to send reset email to ${email}`)

@@ -8,17 +8,17 @@ let columnsEnsured = false
 async function ensureResetColumns() {
   if (columnsEnsured) return
   try {
-    await db.$queryRaw`SELECT "passwordResetToken", "passwordResetExpires" FROM "User" LIMIT 0`
+    await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
+    await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
     columnsEnsured = true
+    console.log('[Reset Password] Reset columns ensured')
   } catch (err: any) {
-    try {
-      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetToken" TEXT`)
-      await db.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordResetExpires" TIMESTAMP(3)`)
+    if (err?.message?.includes('already exists') || err?.code === '42701') {
       columnsEnsured = true
-      console.log('[Reset Password] Reset columns added successfully')
-    } catch (alterErr: any) {
-      console.error('[Reset Password] Failed to add columns:', alterErr?.message)
-      throw alterErr
+      console.log('[Reset Password] Reset columns already exist')
+    } else {
+      console.error('[Reset Password] Column ensure error:', err?.message)
+      throw err
     }
   }
 }
@@ -53,40 +53,42 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find user by reset token
-    const user = await db.user.findFirst({
-      where: {
-        passwordResetToken: token,
-        passwordResetExpires: { gt: new Date() },
-      },
-    })
+    // Find user by reset token using raw SQL
+    const users: any[] = await db.$queryRaw`
+      SELECT id, "passwordResetToken", "passwordResetExpires"
+      FROM "User"
+      WHERE "passwordResetToken" = ${token}
+        AND "passwordResetExpires" > NOW()
+      LIMIT 1
+    `
 
-    if (!user) {
+    if (!users.length) {
       return NextResponse.json(
         { error: 'Invalid or expired reset token. Please request a new password reset link.' },
         { status: 400 }
       )
     }
 
+    const user = users[0]
+
     // Hash the new password
     const salt = await bcrypt.genSalt(12)
     const passwordHash = await bcrypt.hash(password, salt)
 
-    // Update user: set new password, clear reset token
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      },
-    })
+    // Update user: set new password, clear reset token using raw SQL
+    await db.$executeRaw`
+      UPDATE "User"
+      SET "passwordHash" = ${passwordHash},
+          "passwordResetToken" = NULL,
+          "passwordResetExpires" = NULL
+      WHERE id = ${user.id}
+    `
 
     // Delete all existing sessions (force re-login on all devices)
     try {
-      await db.session.deleteMany({
-        where: { userId: user.id },
-      })
+      await db.$executeRaw`
+        DELETE FROM "Session" WHERE "userId" = ${user.id}
+      `
     } catch (e) {
       console.warn('[Reset Password] Failed to clear sessions:', e)
     }
