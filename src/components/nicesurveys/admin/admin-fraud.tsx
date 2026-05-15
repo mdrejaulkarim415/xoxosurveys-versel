@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,6 @@ import {
   CheckCircle,
   XCircle,
   Eye,
-  Search,
   Plus,
   Trash2,
   Globe,
@@ -42,6 +41,7 @@ import {
   Activity,
   UserX,
   Clock,
+  Loader2,
 } from 'lucide-react'
 import {
   BarChart,
@@ -67,61 +67,39 @@ interface FraudEvent {
   createdAt: string
 }
 
-interface BlockedEntry {
+interface BlockedIp {
   id: string
-  value: string
+  ipAddress: string
   reason: string
   isAutoBlocked: boolean
   createdAt: string
 }
 
-const mockFraudEvents: FraudEvent[] = [
-  { id: 'fe1', userId: 'u1', userEmail: 'sarah@example.com', eventType: 'vpn_detected', severity: 'high', details: '{"provider":"NordVPN","ip":"45.33.32.156"}', ipAddress: '45.33.32.156', deviceFingerprint: null, country: 'DE', isResolved: false, createdAt: '2025-03-10T14:23:00Z' },
-  { id: 'fe2', userId: 'u2', userEmail: 'mike@example.com', eventType: 'fast_completion', severity: 'medium', details: '{"surveyTime":5,"expectedTime":20,"speedRatio":0.25}', ipAddress: '172.16.0.1', deviceFingerprint: 'fp_abc123', country: 'US', isResolved: false, createdAt: '2025-03-10T14:15:00Z' },
-  { id: 'fe3', userId: 'u3', userEmail: 'bot_user@example.com', eventType: 'bot_detected', severity: 'critical', details: '{"pattern":"rapid_fire","requestsPerMinute":120}', ipAddress: '45.33.32.156', deviceFingerprint: 'fp_bot_001', country: 'DE', isResolved: false, createdAt: '2025-03-10T13:45:00Z' },
-  { id: 'fe4', userId: 'u4', userEmail: 'lisa@example.com', eventType: 'duplicate_ip', severity: 'medium', details: '{"accounts":3,"sameIp":"10.0.0.200"}', ipAddress: '10.0.0.200', deviceFingerprint: null, country: 'US', isResolved: false, createdAt: '2025-03-10T12:30:00Z' },
-  { id: 'fe5', userId: 'u5', userEmail: 'dave@example.com', eventType: 'impossible_pattern', severity: 'high', details: '{"completedIn":2,"minPossible":10}', ipAddress: '203.0.113.42', deviceFingerprint: 'fp_xyz789', country: 'US', isResolved: true, createdAt: '2025-03-10T11:00:00Z' },
-  { id: 'fe6', userId: 'u6', userEmail: 'anna@example.com', eventType: 'multiple_accounts', severity: 'critical', details: '{"accountCount":5,"sameDevice":"fp_multi_001"}', ipAddress: '198.51.100.7', deviceFingerprint: 'fp_multi_001', country: 'US', isResolved: false, createdAt: '2025-03-10T10:20:00Z' },
-  { id: 'fe7', userId: 'u7', userEmail: 'tom@example.com', eventType: 'suspicious_location', severity: 'low', details: '{"prevCountry":"US","currentCountry":"NG","timeDiff":30}', ipAddress: '102.89.23.1', deviceFingerprint: null, country: 'NG', isResolved: false, createdAt: '2025-03-10T09:00:00Z' },
-  { id: 'fe8', userId: 'u8', userEmail: 'jerry@example.com', eventType: 'answer_inconsistency', severity: 'medium', details: '{"consistencyScore":0.12,"threshold":0.5}', ipAddress: '10.0.0.55', deviceFingerprint: 'fp_jerry', country: 'US', isResolved: true, createdAt: '2025-03-09T22:00:00Z' },
-]
+interface BlockedDevice {
+  id: string
+  fingerprint: string
+  reason: string
+  isAutoBlocked: boolean
+  createdAt: string
+}
 
-const mockBlockedIps: BlockedEntry[] = [
-  { id: 'bi1', value: '45.33.32.156', reason: 'Known VPN exit node', isAutoBlocked: true, createdAt: '2025-03-10' },
-  { id: 'bi2', value: '185.220.101.1', reason: 'Tor exit node', isAutoBlocked: true, createdAt: '2025-03-09' },
-  { id: 'bi3', value: '103.21.244.0', reason: 'Multiple fraud accounts', isAutoBlocked: false, createdAt: '2025-03-08' },
-]
-
-const mockBlockedDevices: BlockedEntry[] = [
-  { id: 'bd1', value: 'fp_bot_001', reason: 'Bot automation detected', isAutoBlocked: true, createdAt: '2025-03-10' },
-  { id: 'bd2', value: 'fp_multi_001', reason: 'Multiple accounts same device', isAutoBlocked: false, createdAt: '2025-03-09' },
-]
-
-const fraudScoreDistribution = [
-  { range: '0-10', count: 850 },
-  { range: '11-20', count: 320 },
-  { range: '21-30', count: 180 },
-  { range: '31-40', count: 95 },
-  { range: '41-50', count: 65 },
-  { range: '51-60', count: 42 },
-  { range: '61-70', count: 28 },
-  { range: '71-80', count: 15 },
-  { range: '81-90', count: 8 },
-  { range: '91-100', count: 5 },
-]
-
-const suspiciousUsers = [
-  { email: 'bot_user@example.com', fraudScore: 95, events: 12, isBanned: true },
-  { email: 'mike@example.com', fraudScore: 90, events: 8, isBanned: true },
-  { email: 'anna@example.com', fraudScore: 85, events: 6, isBanned: false },
-  { email: 'sarah@example.com', fraudScore: 75, events: 4, isBanned: false },
-  { email: 'lisa@example.com', fraudScore: 60, events: 3, isBanned: false },
-]
+interface SuspiciousUser {
+  email: string
+  fraudScore: number
+  events: number
+  isBanned: boolean
+}
 
 export function AdminFraud() {
-  const [events, setEvents] = useState(mockFraudEvents)
-  const [blockedIps, setBlockedIps] = useState(mockBlockedIps)
-  const [blockedDevices, setBlockedDevices] = useState(mockBlockedDevices)
+  const [events, setEvents] = useState<FraudEvent[]>([])
+  const [eventsTotal, setEventsTotal] = useState(0)
+  const [eventsPage, setEventsPage] = useState(1)
+  const [eventsLimit] = useState(20)
+  const [blockedIps, setBlockedIps] = useState<BlockedIp[]>([])
+  const [blockedDevices, setBlockedDevices] = useState<BlockedDevice[]>([])
+  const [suspiciousUsers, setSuspiciousUsers] = useState<SuspiciousUser[]>([])
+  const [fraudScoreDistribution, setFraudScoreDistribution] = useState<{ range: string; count: number }[]>([])
+  const [loading, setLoading] = useState(true)
   const [severityFilter, setSeverityFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [resolvedFilter, setResolvedFilter] = useState('unresolved')
@@ -133,35 +111,229 @@ export function AdminFraud() {
   const [newDeviceReason, setNewDeviceReason] = useState('')
   const [ipSearch, setIpSearch] = useState('')
   const [deviceSearch, setDeviceSearch] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const filteredEvents = events.filter((e) => {
-    if (severityFilter !== 'all' && e.severity !== severityFilter) return false
-    if (typeFilter !== 'all' && e.eventType !== typeFilter) return false
-    if (resolvedFilter === 'unresolved' && e.isResolved) return false
-    if (resolvedFilter === 'resolved' && !e.isResolved) return false
-    return true
-  })
+  const fetchEvents = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(eventsPage))
+      params.set('limit', String(eventsLimit))
+      if (severityFilter && severityFilter !== 'all') params.set('severity', severityFilter)
+      if (typeFilter && typeFilter !== 'all') params.set('eventType', typeFilter)
+      if (resolvedFilter === 'unresolved') params.set('resolved', 'false')
+      else if (resolvedFilter === 'resolved') params.set('resolved', 'true')
 
-  const resolveEvent = (id: string) => {
-    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, isResolved: true } : e)))
+      const res = await fetch(`/api/admin/fraud/events?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        const mappedEvents: FraudEvent[] = (data.events || []).map((e: Record<string, unknown>) => ({
+          id: e.id as string,
+          userId: (e.userId as string) || null,
+          userEmail: (e.user as Record<string, string>)?.email || 'Unknown',
+          eventType: e.eventType as string,
+          severity: e.severity as string,
+          details: typeof e.details === 'string' ? e.details : JSON.stringify(e.details || {}),
+          ipAddress: (e.ipAddress as string) || null,
+          deviceFingerprint: (e.deviceFingerprint as string) || null,
+          country: (e.country as string) || null,
+          isResolved: e.isResolved as boolean,
+          createdAt: e.createdAt as string,
+        }))
+        setEvents(mappedEvents)
+        setEventsTotal(data.total || 0)
+      }
+    } catch (err) {
+      console.error('Failed to fetch fraud events:', err)
+    }
+  }, [eventsPage, eventsLimit, severityFilter, typeFilter, resolvedFilter])
+
+  const fetchBlockedIps = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/fraud/blocked-ips')
+      if (res.ok) {
+        const data = await res.json()
+        setBlockedIps(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch blocked IPs:', err)
+    }
+  }, [])
+
+  const fetchBlockedDevices = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/fraud/blocked-devices')
+      if (res.ok) {
+        const data = await res.json()
+        setBlockedDevices(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch blocked devices:', err)
+    }
+  }, [])
+
+  const fetchSuspiciousUsers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/users?fraudMin=50&limit=10')
+      if (res.ok) {
+        const data = await res.json()
+        const users: SuspiciousUser[] = (data.users || []).map((u: Record<string, unknown>) => ({
+          email: u.email as string,
+          fraudScore: u.fraudScore as number,
+          events: 0, // Will be computed from fraud events if available
+          isBanned: u.isBanned as boolean,
+        }))
+        setSuspiciousUsers(users)
+      }
+    } catch (err) {
+      console.error('Failed to fetch suspicious users:', err)
+    }
+  }, [])
+
+  const computeDistribution = useCallback(async () => {
+    try {
+      // Fetch all fraud events to compute distribution from user fraudScores
+      // Since the API returns fraud events, we compute distribution from user data
+      const res = await fetch('/api/admin/users?limit=100')
+      if (res.ok) {
+        const data = await res.json()
+        const users: { fraudScore: number }[] = (data.users || [])
+        const ranges = [
+          { range: '0-10', min: 0, max: 10 },
+          { range: '11-20', min: 11, max: 20 },
+          { range: '21-30', min: 21, max: 30 },
+          { range: '31-40', min: 31, max: 40 },
+          { range: '41-50', min: 41, max: 50 },
+          { range: '51-60', min: 51, max: 60 },
+          { range: '61-70', min: 61, max: 70 },
+          { range: '71-80', min: 71, max: 80 },
+          { range: '81-90', min: 81, max: 90 },
+          { range: '91-100', min: 91, max: 100 },
+        ]
+        const distribution = ranges.map((r) => ({
+          range: r.range,
+          count: users.filter((u) => u.fraudScore >= r.min && u.fraudScore <= r.max).length,
+        }))
+        setFraudScoreDistribution(distribution)
+      }
+    } catch (err) {
+      console.error('Failed to compute fraud distribution:', err)
+      setFraudScoreDistribution([
+        { range: '0-10', count: 0 }, { range: '11-20', count: 0 }, { range: '21-30', count: 0 },
+        { range: '31-40', count: 0 }, { range: '41-50', count: 0 }, { range: '51-60', count: 0 },
+        { range: '61-70', count: 0 }, { range: '71-80', count: 0 }, { range: '81-90', count: 0 },
+        { range: '91-100', count: 0 },
+      ])
+    }
+  }, [])
+
+  // Initial load - only runs once on mount
+  const [initialLoaded, setInitialLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!initialLoaded) {
+      const doLoad = async () => {
+        setLoading(true)
+        await Promise.all([fetchEvents(), fetchBlockedIps(), fetchBlockedDevices(), fetchSuspiciousUsers(), computeDistribution()])
+        setLoading(false)
+        setInitialLoaded(true)
+      }
+      doLoad()
+    }
+  }, [initialLoaded, fetchEvents, fetchBlockedIps, fetchBlockedDevices, fetchSuspiciousUsers, computeDistribution])
+
+  // Refetch events when filters change (after initial load)
+  useEffect(() => {
+    if (initialLoaded) {
+      fetchEvents()
+    }
+  }, [severityFilter, typeFilter, resolvedFilter, eventsPage, initialLoaded, fetchEvents])
+
+  const resolveEvent = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/fraud/events/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isResolved: true, resolution: 'Resolved by admin' }),
+      })
+      if (!res.ok) throw new Error('Failed to resolve event')
+      await fetchEvents()
+    } catch (err) {
+      console.error('Resolve event error:', err)
+    }
   }
 
-  const dismissEvent = (id: string) => {
-    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, isResolved: true } : e)))
+  const dismissEvent = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/fraud/events/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isResolved: true, resolution: 'Dismissed by admin' }),
+      })
+      if (!res.ok) throw new Error('Failed to dismiss event')
+      await fetchEvents()
+    } catch (err) {
+      console.error('Dismiss event error:', err)
+    }
   }
 
-  const addBlockedIp = () => {
+  const addBlockedIp = async () => {
     if (!newIp || !newIpReason) return
-    setBlockedIps((prev) => [...prev, { id: `bi_${Date.now()}`, value: newIp, reason: newIpReason, isAutoBlocked: false, createdAt: new Date().toISOString().split('T')[0] }])
-    setNewIp('')
-    setNewIpReason('')
+    try {
+      setSaving(true)
+      const res = await fetch('/api/admin/fraud/blocked-ips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ipAddress: newIp, reason: newIpReason }),
+      })
+      if (!res.ok) throw new Error('Failed to block IP')
+      setNewIp('')
+      setNewIpReason('')
+      await fetchBlockedIps()
+    } catch (err) {
+      console.error('Block IP error:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const addBlockedDevice = () => {
+  const removeBlockedIp = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/fraud/blocked-ips/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to unblock IP')
+      await fetchBlockedIps()
+    } catch (err) {
+      console.error('Unblock IP error:', err)
+    }
+  }
+
+  const addBlockedDevice = async () => {
     if (!newDevice || !newDeviceReason) return
-    setBlockedDevices((prev) => [...prev, { id: `bd_${Date.now()}`, value: newDevice, reason: newDeviceReason, isAutoBlocked: false, createdAt: new Date().toISOString().split('T')[0] }])
-    setNewDevice('')
-    setNewDeviceReason('')
+    try {
+      setSaving(true)
+      const res = await fetch('/api/admin/fraud/blocked-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: newDevice, reason: newDeviceReason }),
+      })
+      if (!res.ok) throw new Error('Failed to block device')
+      setNewDevice('')
+      setNewDeviceReason('')
+      await fetchBlockedDevices()
+    } catch (err) {
+      console.error('Block device error:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeBlockedDevice = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/fraud/blocked-devices/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to unblock device')
+      await fetchBlockedDevices()
+    } catch (err) {
+      console.error('Unblock device error:', err)
+    }
   }
 
   const getSeverityBadge = (severity: string) => {
@@ -176,6 +348,17 @@ export function AdminFraud() {
 
   const getEventTypeLabel = (type: string) => {
     return type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+  }
+
+  const filteredEvents = events
+  const eventsTotalPages = Math.ceil(eventsTotal / eventsLimit)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[#2DD9B6]" />
+      </div>
+    )
   }
 
   return (
@@ -202,7 +385,7 @@ export function AdminFraud() {
           <Card className="border-[#E5E7EB] shadow-sm">
             <CardContent className="p-4">
               <div className="flex flex-wrap items-center gap-3">
-                <Select value={severityFilter} onValueChange={setSeverityFilter}>
+                <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setEventsPage(1) }}>
                   <SelectTrigger className="w-[130px] h-9 text-[13px]"><SelectValue placeholder="Severity" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Severity</SelectItem>
@@ -212,7 +395,7 @@ export function AdminFraud() {
                     <SelectItem value="low">Low</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setEventsPage(1) }}>
                   <SelectTrigger className="w-[160px] h-9 text-[13px]"><SelectValue placeholder="Event Type" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
@@ -226,7 +409,7 @@ export function AdminFraud() {
                     <SelectItem value="answer_inconsistency">Answer Inconsistency</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={resolvedFilter} onValueChange={setResolvedFilter}>
+                <Select value={resolvedFilter} onValueChange={(v) => { setResolvedFilter(v); setEventsPage(1) }}>
                   <SelectTrigger className="w-[140px] h-9 text-[13px]"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
@@ -246,62 +429,87 @@ export function AdminFraud() {
           {/* Events List */}
           <Card className="border-[#E5E7EB] shadow-sm">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-b border-[#E5E7EB]">
-                      <TableHead className="text-[12px] text-[#999999]">Type</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">User</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">Severity</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">IP</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">Country</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">Time</TableHead>
-                      <TableHead className="text-[12px] text-[#999999]">Status</TableHead>
-                      <TableHead className="w-[120px]" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEvents.map((event) => (
-                      <TableRow key={event.id} className={`border-b border-[#F0F2F5] hover:bg-[#FAFAFA] ${event.isResolved ? 'opacity-60' : ''}`}>
-                        <TableCell>
-                          <span className="text-[13px] font-medium text-[#1A1A1A]">{getEventTypeLabel(event.eventType)}</span>
-                        </TableCell>
-                        <TableCell className="text-[12px] text-[#555555]">{event.userEmail}</TableCell>
-                        <TableCell>{getSeverityBadge(event.severity)}</TableCell>
-                        <TableCell className="text-[12px] font-mono text-[#555555]">{event.ipAddress || '—'}</TableCell>
-                        <TableCell className="text-[12px] text-[#555555]">{event.country || '—'}</TableCell>
-                        <TableCell className="text-[11px] text-[#999999]">
-                          <div className="flex items-center gap-1"><Clock size={10} />{new Date(event.createdAt).toLocaleString()}</div>
-                        </TableCell>
-                        <TableCell>
-                          {event.isResolved ? (
-                            <Badge className="bg-[#ECFDF5] text-[#10B981]"><CheckCircle size={10} className="mr-1" />Resolved</Badge>
-                          ) : (
-                            <Badge className="bg-[#FFF7ED] text-[#F59E0B]">Pending</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setDetailEvent(event); setDetailOpen(true) }}>
-                              <Eye size={14} />
-                            </Button>
-                            {!event.isResolved && (
-                              <>
-                                <Button size="icon" variant="ghost" className="h-7 w-7 text-[#10B981]" onClick={() => resolveEvent(event.id)}>
-                                  <CheckCircle size={14} />
-                                </Button>
-                                <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => dismissEvent(event.id)}>
-                                  <XCircle size={14} />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
+              {filteredEvents.length === 0 ? (
+                <div className="text-center py-12 text-[#999999]">
+                  <ShieldAlert size={40} className="mx-auto text-[#D1D5DB] mb-3" />
+                  <p className="text-[14px]">No fraud events found</p>
+                  <p className="text-[12px] mt-1">Events will appear here when suspicious activity is detected</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-b border-[#E5E7EB]">
+                        <TableHead className="text-[12px] text-[#999999]">Type</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">User</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">Severity</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">IP</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">Country</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">Time</TableHead>
+                        <TableHead className="text-[12px] text-[#999999]">Status</TableHead>
+                        <TableHead className="w-[120px]" />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredEvents.map((event) => (
+                        <TableRow key={event.id} className={`border-b border-[#F0F2F5] hover:bg-[#FAFAFA] ${event.isResolved ? 'opacity-60' : ''}`}>
+                          <TableCell>
+                            <span className="text-[13px] font-medium text-[#1A1A1A]">{getEventTypeLabel(event.eventType)}</span>
+                          </TableCell>
+                          <TableCell className="text-[12px] text-[#555555]">{event.userEmail}</TableCell>
+                          <TableCell>{getSeverityBadge(event.severity)}</TableCell>
+                          <TableCell className="text-[12px] font-mono text-[#555555]">{event.ipAddress || '—'}</TableCell>
+                          <TableCell className="text-[12px] text-[#555555]">{event.country || '—'}</TableCell>
+                          <TableCell className="text-[11px] text-[#999999]">
+                            <div className="flex items-center gap-1"><Clock size={10} />{new Date(event.createdAt).toLocaleString()}</div>
+                          </TableCell>
+                          <TableCell>
+                            {event.isResolved ? (
+                              <Badge className="bg-[#ECFDF5] text-[#10B981]"><CheckCircle size={10} className="mr-1" />Resolved</Badge>
+                            ) : (
+                              <Badge className="bg-[#FFF7ED] text-[#F59E0B]">Pending</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setDetailEvent(event); setDetailOpen(true) }}>
+                                <Eye size={14} />
+                              </Button>
+                              {!event.isResolved && (
+                                <>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-[#10B981]" onClick={() => resolveEvent(event.id)}>
+                                    <CheckCircle size={14} />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => dismissEvent(event.id)}>
+                                    <XCircle size={14} />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              {/* Pagination */}
+              {eventsTotalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-[#E5E7EB]">
+                  <p className="text-[12px] text-[#999999]">
+                    Showing {((eventsPage - 1) * eventsLimit) + 1}–{Math.min(eventsPage * eventsLimit, eventsTotal)} of {eventsTotal}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => setEventsPage((p) => Math.max(1, p - 1))} disabled={eventsPage === 1}>
+                      ‹
+                    </Button>
+                    <span className="text-[12px] text-[#555555]">{eventsPage}/{eventsTotalPages}</span>
+                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => setEventsPage((p) => Math.min(eventsTotalPages, p + 1))} disabled={eventsPage === eventsTotalPages}>
+                      ›
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -327,26 +535,34 @@ export function AdminFraud() {
               <div className="flex items-center gap-2 mb-4">
                 <Input placeholder="IP Address" value={newIp} onChange={(e) => setNewIp(e.target.value)} className="h-9 text-[13px] w-[180px]" />
                 <Input placeholder="Reason" value={newIpReason} onChange={(e) => setNewIpReason(e.target.value)} className="h-9 text-[13px] flex-1" />
-                <Button size="sm" className="text-white text-[12px]" style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }} onClick={addBlockedIp}>
-                  <Plus size={14} className="mr-1" /> Block
+                <Button size="sm" className="text-white text-[12px]" style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }} onClick={addBlockedIp} disabled={saving}>
+                  {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Plus size={14} className="mr-1" />}
+                  Block
                 </Button>
               </div>
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {blockedIps
-                  .filter((ip) => !ipSearch || ip.value.includes(ipSearch))
-                  .map((ip) => (
-                  <div key={ip.id} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
-                    <Globe size={16} className="text-[#EF4444]" />
-                    <span className="font-mono text-[13px] font-medium text-[#1A1A1A]">{ip.value}</span>
-                    <span className="text-[12px] text-[#999999]">{ip.reason}</span>
-                    {ip.isAutoBlocked && <Badge className="bg-[#E0F7FA] text-[#22B9CF] text-[10px]">Auto</Badge>}
-                    <span className="text-[11px] text-[#999999] ml-auto">{ip.createdAt}</span>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => setBlockedIps((prev) => prev.filter((i) => i.id !== ip.id))}>
-                      <Trash2 size={14} />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+              {blockedIps.length === 0 ? (
+                <div className="text-center py-8 text-[#999999]">
+                  <Globe size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+                  <p className="text-[13px]">No blocked IPs</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {blockedIps
+                    .filter((ip) => !ipSearch || ip.ipAddress.includes(ipSearch))
+                    .map((ip) => (
+                    <div key={ip.id} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
+                      <Globe size={16} className="text-[#EF4444]" />
+                      <span className="font-mono text-[13px] font-medium text-[#1A1A1A]">{ip.ipAddress}</span>
+                      <span className="text-[12px] text-[#999999]">{ip.reason}</span>
+                      {ip.isAutoBlocked && <Badge className="bg-[#E0F7FA] text-[#22B9CF] text-[10px]">Auto</Badge>}
+                      <span className="text-[11px] text-[#999999] ml-auto">{new Date(ip.createdAt).toLocaleDateString()}</span>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => removeBlockedIp(ip.id)}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -369,26 +585,34 @@ export function AdminFraud() {
               <div className="flex items-center gap-2 mb-4">
                 <Input placeholder="Device Fingerprint" value={newDevice} onChange={(e) => setNewDevice(e.target.value)} className="h-9 text-[13px] w-[220px]" />
                 <Input placeholder="Reason" value={newDeviceReason} onChange={(e) => setNewDeviceReason(e.target.value)} className="h-9 text-[13px] flex-1" />
-                <Button size="sm" className="text-white text-[12px]" style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }} onClick={addBlockedDevice}>
-                  <Plus size={14} className="mr-1" /> Block
+                <Button size="sm" className="text-white text-[12px]" style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }} onClick={addBlockedDevice} disabled={saving}>
+                  {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Plus size={14} className="mr-1" />}
+                  Block
                 </Button>
               </div>
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {blockedDevices
-                  .filter((d) => !deviceSearch || d.value.includes(deviceSearch))
-                  .map((device) => (
-                  <div key={device.id} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
-                    <Smartphone size={16} className="text-[#EF4444]" />
-                    <span className="font-mono text-[13px] font-medium text-[#1A1A1A]">{device.value}</span>
-                    <span className="text-[12px] text-[#999999]">{device.reason}</span>
-                    {device.isAutoBlocked && <Badge className="bg-[#E0F7FA] text-[#22B9CF] text-[10px]">Auto</Badge>}
-                    <span className="text-[11px] text-[#999999] ml-auto">{device.createdAt}</span>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => setBlockedDevices((prev) => prev.filter((d2) => d2.id !== device.id))}>
-                      <Trash2 size={14} />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+              {blockedDevices.length === 0 ? (
+                <div className="text-center py-8 text-[#999999]">
+                  <Smartphone size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+                  <p className="text-[13px]">No blocked devices</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {blockedDevices
+                    .filter((d) => !deviceSearch || d.fingerprint.includes(deviceSearch))
+                    .map((device) => (
+                    <div key={device.id} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
+                      <Smartphone size={16} className="text-[#EF4444]" />
+                      <span className="font-mono text-[13px] font-medium text-[#1A1A1A]">{device.fingerprint}</span>
+                      <span className="text-[12px] text-[#999999]">{device.reason}</span>
+                      {device.isAutoBlocked && <Badge className="bg-[#E0F7FA] text-[#22B9CF] text-[10px]">Auto</Badge>}
+                      <span className="text-[11px] text-[#999999] ml-auto">{new Date(device.createdAt).toLocaleDateString()}</span>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => removeBlockedDevice(device.id)}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -420,32 +644,40 @@ export function AdminFraud() {
                 <CardTitle className="text-[15px] font-bold text-[#1A1A1A]">Suspicious Users (by Fraud Score)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {suspiciousUsers.map((user) => (
-                    <div key={user.email} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
-                      <div
-                        className="w-[36px] h-[36px] rounded-full flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0"
-                        style={{
-                          background: user.fraudScore >= 80 ? '#EF4444' : user.fraudScore >= 60 ? '#F59E0B' : '#22B9CF',
-                        }}
-                      >
-                        {user.fraudScore}
+                {suspiciousUsers.length === 0 ? (
+                  <div className="text-center py-8 text-[#999999]">
+                    <UserX size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+                    <p className="text-[13px]">No suspicious users</p>
+                    <p className="text-[11px] mt-1">Users with fraud score ≥ 50 will appear here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {suspiciousUsers.map((user) => (
+                      <div key={user.email} className="flex items-center gap-3 p-3 bg-[#F8FAFB] rounded-[8px]">
+                        <div
+                          className="w-[36px] h-[36px] rounded-full flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0"
+                          style={{
+                            background: user.fraudScore >= 80 ? '#EF4444' : user.fraudScore >= 60 ? '#F59E0B' : '#22B9CF',
+                          }}
+                        >
+                          {Math.round(user.fraudScore)}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[13px] font-semibold text-[#1A1A1A]">{user.email}</p>
+                          <p className="text-[11px] text-[#999999]">{user.events} fraud events</p>
+                        </div>
+                        {user.isBanned ? (
+                          <Badge className="bg-[#FEF2F2] text-[#EF4444]"><UserX size={10} className="mr-1" />Banned</Badge>
+                        ) : (
+                          <Badge className="bg-[#FFF7ED] text-[#F59E0B]"><AlertTriangle size={10} className="mr-1" />Active</Badge>
+                        )}
+                        <Button size="sm" variant="outline" className="h-7 text-[11px]">
+                          <Eye size={12} className="mr-1" /> View
+                        </Button>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-[13px] font-semibold text-[#1A1A1A]">{user.email}</p>
-                        <p className="text-[11px] text-[#999999]">{user.events} fraud events</p>
-                      </div>
-                      {user.isBanned ? (
-                        <Badge className="bg-[#FEF2F2] text-[#EF4444]"><UserX size={10} className="mr-1" />Banned</Badge>
-                      ) : (
-                        <Badge className="bg-[#FFF7ED] text-[#F59E0B]"><AlertTriangle size={10} className="mr-1" />Active</Badge>
-                      )}
-                      <Button size="sm" variant="outline" className="h-7 text-[11px]">
-                        <Eye size={12} className="mr-1" /> View
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -482,7 +714,7 @@ export function AdminFraud() {
                 <div>
                   <p className="text-[12px] text-[#999999] mb-1">Event Details</p>
                   <pre className="text-[12px] bg-[#F8FAFB] p-3 rounded-[8px] overflow-x-auto font-mono">
-                    {JSON.stringify(JSON.parse(detailEvent.details), null, 2)}
+                    {(() => { try { return JSON.stringify(JSON.parse(detailEvent.details), null, 2) } catch { return detailEvent.details } })()}
                   </pre>
                 </div>
                 {!detailEvent.isResolved && (

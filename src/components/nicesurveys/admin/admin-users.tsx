@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,21 +37,22 @@ import {
   MoreHorizontal,
   Ban,
   CheckCircle,
-  ShieldAlert,
   Eye,
   Download,
   Trash2,
   Flag,
   UserCheck,
   RefreshCw,
-  XCircle,
-  Users,
   Mail,
   Globe,
   Smartphone,
   DollarSign,
   Plus,
   Minus,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Users,
 } from 'lucide-react'
 
 interface UserRecord {
@@ -74,24 +75,42 @@ interface UserRecord {
   loginCount: number
 }
 
-const mockUsers: UserRecord[] = [
-  { id: '1', userId: 100, email: 'john@example.com', name: 'John Doe', role: 'user', balance: 45.50, totalEarned: 120.00, surveysCompleted: 34, fraudScore: 5, isFlagged: false, isBanned: false, emailVerified: true, isActive: true, createdAt: '2025-01-15', lastLoginAt: '2025-03-10', lastLoginIp: '192.168.1.1', loginCount: 45 },
-  { id: '2', userId: 101, email: 'sarah@example.com', name: 'Sarah Smith', role: 'user', balance: 22.30, totalEarned: 78.50, surveysCompleted: 22, fraudScore: 75, isFlagged: true, isBanned: false, emailVerified: true, isActive: true, createdAt: '2025-02-01', lastLoginAt: '2025-03-09', lastLoginIp: '10.0.0.55', loginCount: 30 },
-  { id: '3', userId: 102, email: 'mike@example.com', name: 'Mike Johnson', role: 'user', balance: 0, totalEarned: 15.00, surveysCompleted: 5, fraudScore: 90, isFlagged: true, isBanned: true, emailVerified: false, isActive: false, createdAt: '2025-02-15', lastLoginAt: '2025-02-28', lastLoginIp: '172.16.0.1', loginCount: 8 },
-  { id: '4', userId: 103, email: 'emma@example.com', name: 'Emma Wilson', role: 'user', balance: 88.90, totalEarned: 210.00, surveysCompleted: 56, fraudScore: 2, isFlagged: false, isBanned: false, emailVerified: true, isActive: true, createdAt: '2024-11-20', lastLoginAt: '2025-03-10', lastLoginIp: '203.0.113.42', loginCount: 120 },
-  { id: '5', userId: 104, email: 'alex@example.com', name: 'Alex Brown', role: 'user', balance: 12.00, totalEarned: 45.00, surveysCompleted: 12, fraudScore: 45, isFlagged: false, isBanned: false, emailVerified: true, isActive: true, createdAt: '2025-01-30', lastLoginAt: '2025-03-08', lastLoginIp: '198.51.100.7', loginCount: 25 },
-  { id: '6', userId: 105, email: 'lisa@example.com', name: 'Lisa Davis', role: 'user', balance: 5.50, totalEarned: 30.00, surveysCompleted: 8, fraudScore: 60, isFlagged: true, isBanned: false, emailVerified: false, isActive: true, createdAt: '2025-03-01', lastLoginAt: '2025-03-09', lastLoginIp: '10.0.0.200', loginCount: 12 },
-  { id: '7', userId: 106, email: 'admin@xoxosurveys.com', name: 'Admin User', role: 'admin', balance: 0, totalEarned: 0, surveysCompleted: 0, fraudScore: 0, isFlagged: false, isBanned: false, emailVerified: true, isActive: true, createdAt: '2024-01-01', lastLoginAt: '2025-03-10', lastLoginIp: '127.0.0.1', loginCount: 999 },
-  { id: '8', userId: 107, email: 'bot_user@example.com', name: 'Bot Account', role: 'user', balance: 0, totalEarned: 2.50, surveysCompleted: 150, fraudScore: 95, isFlagged: true, isBanned: true, emailVerified: false, isActive: false, createdAt: '2025-02-20', lastLoginAt: '2025-02-25', lastLoginIp: '45.33.32.156', loginCount: 3 },
-]
+interface ActivityLogRecord {
+  id: string
+  action: string
+  details: string
+  ipAddress: string | null
+  createdAt: string
+}
+
+interface UserIpRecord {
+  id: string
+  ipAddress: string
+  country: string | null
+  city: string | null
+  isVpn: boolean
+  lastSeen: string
+}
+
+interface UserDetail extends UserRecord {
+  activityLogs: ActivityLogRecord[]
+  ips: UserIpRecord[]
+}
 
 export function AdminUsers() {
-  const [users, setUsers] = useState<UserRecord[]>(mockUsers)
+  const [users, setUsers] = useState<UserRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [totalUsers, setTotalUsers] = useState(0)
+  const [page, setPage] = useState(1)
+  const [limit] = useState(20)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [fraudFilter, setFraudFilter] = useState('all')
   const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null)
+  const [userDetail, setUserDetail] = useState<UserDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [balanceOpen, setBalanceOpen] = useState(false)
@@ -100,18 +119,111 @@ export function AdminUsers() {
   const [balanceAmount, setBalanceAmount] = useState('')
   const [balanceReason, setBalanceReason] = useState('')
   const [balanceSuccess, setBalanceSuccess] = useState(false)
+  const [balanceSubmitting, setBalanceSubmitting] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const filteredUsers = users.filter((u) => {
-    if (search && !u.email.toLowerCase().includes(search.toLowerCase()) && !(u.name || '').toLowerCase().includes(search.toLowerCase())) return false
-    if (roleFilter !== 'all' && u.role !== roleFilter) return false
-    if (statusFilter === 'active' && (!u.isActive || u.isBanned)) return false
-    if (statusFilter === 'banned' && !u.isBanned) return false
-    if (statusFilter === 'flagged' && !u.isFlagged) return false
-    if (fraudFilter === 'low' && u.fraudScore >= 30) return false
-    if (fraudFilter === 'medium' && (u.fraudScore < 30 || u.fraudScore >= 70)) return false
-    if (fraudFilter === 'high' && u.fraudScore < 70) return false
-    return true
-  })
+  // Debounce search input
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1)
+    }, 400)
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    }
+  }, [search])
+
+  // Fetch users from API
+  const fetchUsers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', page.toString())
+      params.set('limit', limit.toString())
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      if (roleFilter && roleFilter !== 'all') params.set('role', roleFilter)
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+
+      // Map fraud filter to fraudMin/fraudMax
+      if (fraudFilter === 'low') {
+        params.set('fraudMin', '0')
+        params.set('fraudMax', '29')
+      } else if (fraudFilter === 'medium') {
+        params.set('fraudMin', '30')
+        params.set('fraudMax', '69')
+      } else if (fraudFilter === 'high') {
+        params.set('fraudMin', '70')
+        params.set('fraudMax', '100')
+      }
+
+      const res = await fetch(`/api/admin/users?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setUsers(data.users || [])
+        setTotalUsers(data.total || 0)
+      } else {
+        console.error('Failed to fetch users')
+        setUsers([])
+        setTotalUsers(0)
+      }
+    } catch (err) {
+      console.error('Failed to fetch users:', err)
+      setUsers([])
+      setTotalUsers(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [page, limit, debouncedSearch, roleFilter, statusFilter, fraudFilter])
+
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1)
+  }, [roleFilter, statusFilter, fraudFilter])
+
+  // Fetch user detail from API
+  const fetchUserDetail = useCallback(async (userId: string) => {
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setUserDetail(data)
+        setSelectedUser({
+          id: data.id,
+          userId: data.userId,
+          email: data.email,
+          name: data.name,
+          role: data.role,
+          balance: data.balance,
+          totalEarned: data.totalEarned,
+          surveysCompleted: data.surveysCompleted,
+          fraudScore: data.fraudScore,
+          isFlagged: data.isFlagged,
+          isBanned: data.isBanned,
+          emailVerified: data.emailVerified,
+          isActive: data.isActive,
+          createdAt: data.createdAt,
+          lastLoginAt: data.lastLoginAt,
+          lastLoginIp: data.lastLoginIp,
+          loginCount: data.loginCount,
+        })
+      } else {
+        console.error('Failed to fetch user detail')
+      }
+    } catch (err) {
+      console.error('Failed to fetch user detail:', err)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  const totalPages = Math.max(1, Math.ceil(totalUsers / limit))
 
   const toggleSelect = (id: string) => {
     const next = new Set(selectedIds)
@@ -121,37 +233,51 @@ export function AdminUsers() {
   }
 
   const toggleAll = () => {
-    if (selectedIds.size === filteredUsers.length) {
+    if (selectedIds.size === users.length && users.length > 0) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(filteredUsers.map((u) => u.id)))
+      setSelectedIds(new Set(users.map((u) => u.id)))
     }
   }
 
-  const handleBalanceAdjust = () => {
+  const handleBalanceAdjust = async () => {
     if (!balanceUser || !balanceAmount) return
     const amount = parseFloat(balanceAmount)
     if (isNaN(amount) || amount < 0) return
 
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== balanceUser!.id) return u
-        let newBalance = u.balance
-        switch (balanceAction) {
-          case 'add': newBalance = u.balance + amount; break
-          case 'subtract': newBalance = Math.max(0, u.balance - amount); break
-          case 'set': newBalance = amount; break
-        }
-        return { ...u, balance: Math.round(newBalance * 100) / 100 }
+    setBalanceSubmitting(true)
+    try {
+      let newBalance = balanceUser.balance
+      switch (balanceAction) {
+        case 'add': newBalance = balanceUser.balance + amount; break
+        case 'subtract': newBalance = Math.max(0, balanceUser.balance - amount); break
+        case 'set': newBalance = amount; break
+      }
+      newBalance = Math.round(newBalance * 100) / 100
+
+      const res = await fetch(`/api/admin/users/${balanceUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ balance: newBalance }),
       })
-    )
-    setBalanceSuccess(true)
-    setTimeout(() => {
-      setBalanceSuccess(false)
-      setBalanceOpen(false)
-      setBalanceAmount('')
-      setBalanceReason('')
-    }, 1500)
+
+      if (res.ok) {
+        setBalanceSuccess(true)
+        setTimeout(() => {
+          setBalanceSuccess(false)
+          setBalanceOpen(false)
+          setBalanceAmount('')
+          setBalanceReason('')
+        }, 1500)
+        fetchUsers()
+      } else {
+        console.error('Failed to adjust balance')
+      }
+    } catch (err) {
+      console.error('Failed to adjust balance:', err)
+    } finally {
+      setBalanceSubmitting(false)
+    }
   }
 
   const openBalanceDialog = (user: UserRecord) => {
@@ -163,28 +289,118 @@ export function AdminUsers() {
     setBalanceOpen(true)
   }
 
-  const handleAction = (userId: string, action: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== userId) return u
-        switch (action) {
-          case 'ban': return { ...u, isBanned: true, isActive: false }
-          case 'unban': return { ...u, isBanned: false, isActive: true }
-          case 'verify': return { ...u, emailVerified: true }
-          case 'reset_fraud': return { ...u, fraudScore: 0, isFlagged: false }
-          case 'flag': return { ...u, isFlagged: true }
-          case 'unflag': return { ...u, isFlagged: false }
-          case 'delete': return u
-          default: return u
-        }
-      })
-    )
+  const handleAction = async (userId: string, action: string) => {
+    setActionLoading(userId + '-' + action)
+    try {
+      let res: Response
+
+      switch (action) {
+        case 'ban':
+          res = await fetch(`/api/admin/users/${userId}/ban`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Banned by admin' }),
+          })
+          break
+        case 'unban':
+          res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isBanned: false, isActive: true }),
+          })
+          break
+        case 'verify':
+          res = await fetch(`/api/admin/users/${userId}/verify`, {
+            method: 'POST',
+          })
+          break
+        case 'reset_fraud':
+          res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fraudScore: 0, isFlagged: false }),
+          })
+          break
+        case 'flag':
+          res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isFlagged: true }),
+          })
+          break
+        case 'unflag':
+          res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isFlagged: false }),
+          })
+          break
+        case 'delete':
+          res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'DELETE',
+          })
+          break
+        default:
+          return
+      }
+
+      if (res.ok) {
+        fetchUsers()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        console.error(`Action ${action} failed:`, data.error || 'Unknown error')
+      }
+    } catch (err) {
+      console.error(`Action ${action} failed:`, err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const openDetailDialog = (user: UserRecord) => {
+    setSelectedUser(user)
+    setDetailOpen(true)
+    fetchUserDetail(user.id)
   }
 
   const getFraudBadge = (score: number) => {
-    if (score >= 70) return <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">High ({score})</Badge>
-    if (score >= 30) return <Badge className="bg-[#FFF7ED] text-[#F59E0B] hover:bg-[#FFF7ED]">Medium ({score})</Badge>
-    return <Badge className="bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]">Low ({score})</Badge>
+    if (score >= 70) return <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">High ({Math.round(score)})</Badge>
+    if (score >= 30) return <Badge className="bg-[#FFF7ED] text-[#F59E0B] hover:bg-[#FFF7ED]">Medium ({Math.round(score)})</Badge>
+    return <Badge className="bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]">Low ({Math.round(score)})</Badge>
+  }
+
+  const formatTimeAgo = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 30) return `${diffDays}d ago`
+    return date.toLocaleDateString()
+  }
+
+  const actionLabelMap: Record<string, string> = {
+    login: 'Login',
+    survey_start: 'Survey started',
+    survey_complete: 'Survey completed',
+    cashout_request: 'Cashout requested',
+    password_change: 'Password changed',
+    email_change: 'Email changed',
+    profile_update: 'Profile updated',
+  }
+
+  const parseDetails = (detailsStr: string): string => {
+    try {
+      const parsed = JSON.parse(detailsStr)
+      if (typeof parsed === 'string') return parsed
+      return Object.values(parsed).join(', ')
+    } catch {
+      return detailsStr
+    }
   }
 
   return (
@@ -259,7 +475,7 @@ export function AdminUsers() {
                   <TableHead className="w-[40px]">
                     <input
                       type="checkbox"
-                      checked={selectedIds.size === filteredUsers.length && filteredUsers.length > 0}
+                      checked={selectedIds.size === users.length && users.length > 0}
                       onChange={toggleAll}
                       className="w-4 h-4 rounded accent-[#2DD9B6]"
                     />
@@ -276,105 +492,151 @@ export function AdminUsers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id} className="border-b border-[#F0F2F5] hover:bg-[#FAFAFA] cursor-pointer">
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(user.id)}
-                        onChange={() => toggleSelect(user.id)}
-                        className="w-4 h-4 rounded accent-[#2DD9B6]"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0"
-                          style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-                        >
-                          {(user.name || user.email)[0].toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-[13px] font-semibold text-[#1A1A1A]">{user.name || '—'}</p>
-                          <p className="text-[11px] text-[#999999]">{user.email}</p>
-                        </div>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <div className="flex items-center justify-center gap-2 text-[#999999]">
+                        <Loader2 size={20} className="animate-spin" />
+                        <span className="text-[13px]">Loading users...</span>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-[13px] font-semibold text-[#0FBCC0]">#{user.userId}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className={user.role === 'admin' ? 'bg-[#E0F7FA] text-[#22B9CF]' : 'bg-[#F5F5F5] text-[#999999]'}>
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-[13px] font-medium">${user.balance.toFixed(2)}</TableCell>
-                    <TableCell className="text-[13px]">{user.surveysCompleted}</TableCell>
-                    <TableCell>{getFraudBadge(user.fraudScore)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        {user.isBanned && <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">Banned</Badge>}
-                        {user.isFlagged && !user.isBanned && <Badge className="bg-[#FFF7ED] text-[#F59E0B] hover:bg-[#FFF7ED]">Flagged</Badge>}
-                        {!user.isBanned && !user.isFlagged && user.isActive && (
-                          <Badge className="bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]">Active</Badge>
-                        )}
-                        {!user.emailVerified && (
-                          <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">Unverified</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-[12px] text-[#999999]">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal size={16} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setSelectedUser(user); setDetailOpen(true) }}>
-                            <Eye size={14} className="mr-2" /> View Details
-                          </DropdownMenuItem>
-                          {user.isBanned ? (
-                            <DropdownMenuItem onClick={() => handleAction(user.id, 'unban')}>
-                              <UserCheck size={14} className="mr-2" /> Unban
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => handleAction(user.id, 'ban')}>
-                              <Ban size={14} className="mr-2" /> Ban
-                            </DropdownMenuItem>
-                          )}
-                          {!user.emailVerified && (
-                            <DropdownMenuItem onClick={() => handleAction(user.id, 'verify')}>
-                              <CheckCircle size={14} className="mr-2" /> Verify Email
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => openBalanceDialog(user)}>
-                            <DollarSign size={14} className="mr-2" /> Adjust Balance
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction(user.id, 'reset_fraud')}>
-                            <RefreshCw size={14} className="mr-2" /> Reset Fraud Score
-                          </DropdownMenuItem>
-                          {user.isFlagged ? (
-                            <DropdownMenuItem onClick={() => handleAction(user.id, 'unflag')}>
-                              <Flag size={14} className="mr-2" /> Unflag
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => handleAction(user.id, 'flag')}>
-                              <Flag size={14} className="mr-2" /> Flag
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem className="text-[#EF4444]" onClick={() => handleAction(user.id, 'delete')}>
-                            <Trash2 size={14} className="mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : users.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <p className="text-[13px] text-[#999999]">No users found</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  users.map((user) => (
+                    <TableRow key={user.id} className="border-b border-[#F0F2F5] hover:bg-[#FAFAFA] cursor-pointer">
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(user.id)}
+                          onChange={() => toggleSelect(user.id)}
+                          className="w-4 h-4 rounded accent-[#2DD9B6]"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0"
+                            style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                          >
+                            {(user.name || user.email)[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-[13px] font-semibold text-[#1A1A1A]">{user.name || '—'}</p>
+                            <p className="text-[11px] text-[#999999]">{user.email}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-[13px] font-semibold text-[#0FBCC0]">#{user.userId}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={user.role === 'admin' ? 'bg-[#E0F7FA] text-[#22B9CF]' : 'bg-[#F5F5F5] text-[#999999]'}>
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-[13px] font-medium">${user.balance.toFixed(2)}</TableCell>
+                      <TableCell className="text-[13px]">{user.surveysCompleted}</TableCell>
+                      <TableCell>{getFraudBadge(user.fraudScore)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          {user.isBanned && <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">Banned</Badge>}
+                          {user.isFlagged && !user.isBanned && <Badge className="bg-[#FFF7ED] text-[#F59E0B] hover:bg-[#FFF7ED]">Flagged</Badge>}
+                          {!user.isBanned && !user.isFlagged && user.isActive && (
+                            <Badge className="bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]">Active</Badge>
+                          )}
+                          {!user.emailVerified && (
+                            <Badge className="bg-[#FEF2F2] text-[#EF4444] hover:bg-[#FEF2F2]">Unverified</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-[12px] text-[#999999]">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!!actionLoading}>
+                              {actionLoading && actionLoading.startsWith(user.id) ? (
+                                <Loader2 size={16} className="animate-spin" />
+                              ) : (
+                                <MoreHorizontal size={16} />
+                              )}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openDetailDialog(user)}>
+                              <Eye size={14} className="mr-2" /> View Details
+                            </DropdownMenuItem>
+                            {user.isBanned ? (
+                              <DropdownMenuItem onClick={() => handleAction(user.id, 'unban')}>
+                                <UserCheck size={14} className="mr-2" /> Unban
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => handleAction(user.id, 'ban')}>
+                                <Ban size={14} className="mr-2" /> Ban
+                              </DropdownMenuItem>
+                            )}
+                            {!user.emailVerified && (
+                              <DropdownMenuItem onClick={() => handleAction(user.id, 'verify')}>
+                                <CheckCircle size={14} className="mr-2" /> Verify Email
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => openBalanceDialog(user)}>
+                              <DollarSign size={14} className="mr-2" /> Adjust Balance
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAction(user.id, 'reset_fraud')}>
+                              <RefreshCw size={14} className="mr-2" /> Reset Fraud Score
+                            </DropdownMenuItem>
+                            {user.isFlagged ? (
+                              <DropdownMenuItem onClick={() => handleAction(user.id, 'unflag')}>
+                                <Flag size={14} className="mr-2" /> Unflag
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => handleAction(user.id, 'flag')}>
+                                <Flag size={14} className="mr-2" /> Flag
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem className="text-[#EF4444]" onClick={() => handleAction(user.id, 'delete')}>
+                              <Trash2 size={14} className="mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
           <div className="flex items-center justify-between p-4 border-t border-[#E5E7EB]">
-            <p className="text-[12px] text-[#999999]">Showing {filteredUsers.length} of {users.length} users</p>
+            <p className="text-[12px] text-[#999999]">
+              Showing {users.length} of {totalUsers} users
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft size={14} />
+              </Button>
+              <span className="text-[12px] text-[#666666] min-w-[80px] text-center">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                <ChevronRight size={14} />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -390,122 +652,130 @@ export function AdminUsers() {
                 </DialogTitle>
               </DialogHeader>
 
-              {/* Profile Card */}
-              <div className="flex items-center gap-4 p-4 bg-[#F8FAFB] rounded-[10px]">
-                <div
-                  className="w-[56px] h-[56px] rounded-full flex items-center justify-center text-white text-[20px] font-bold"
-                  style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-                >
-                  {(selectedUser.name || selectedUser.email)[0].toUpperCase()}
+              {detailLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={24} className="animate-spin text-[#2DD9B6]" />
+                  <span className="ml-2 text-[13px] text-[#999999]">Loading details...</span>
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-[16px] font-bold text-[#1A1A1A]">{selectedUser.name || 'Unknown'}</h3>
-                  <p className="text-[13px] text-[#999999]">{selectedUser.email}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[12px] font-semibold text-[#0FBCC0] bg-[#F0FDFB] px-2 py-0.5 rounded-full">ID: #{selectedUser.userId}</span>
-                    {getFraudBadge(selectedUser.fraudScore)}
-                    {selectedUser.isBanned && <Badge className="bg-[#FEF2F2] text-[#EF4444]">Banned</Badge>}
-                    {selectedUser.emailVerified ? (
-                      <Badge className="bg-[#ECFDF5] text-[#10B981]">Verified</Badge>
+              ) : (
+                <>
+                  {/* Profile Card */}
+                  <div className="flex items-center gap-4 p-4 bg-[#F8FAFB] rounded-[10px]">
+                    <div
+                      className="w-[56px] h-[56px] rounded-full flex items-center justify-center text-white text-[20px] font-bold"
+                      style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                    >
+                      {(selectedUser.name || selectedUser.email)[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-[16px] font-bold text-[#1A1A1A]">{selectedUser.name || 'Unknown'}</h3>
+                      <p className="text-[13px] text-[#999999]">{selectedUser.email}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[12px] font-semibold text-[#0FBCC0] bg-[#F0FDFB] px-2 py-0.5 rounded-full">ID: #{selectedUser.userId}</span>
+                        {getFraudBadge(selectedUser.fraudScore)}
+                        {selectedUser.isBanned && <Badge className="bg-[#FEF2F2] text-[#EF4444]">Banned</Badge>}
+                        {selectedUser.emailVerified ? (
+                          <Badge className="bg-[#ECFDF5] text-[#10B981]">Verified</Badge>
+                        ) : (
+                          <Badge className="bg-[#FEF2F2] text-[#EF4444]">Unverified</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[22px] font-bold text-[#1A1A1A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
+                        ${selectedUser.balance.toFixed(2)}
+                      </p>
+                      <p className="text-[12px] text-[#999999]">Balance</p>
+                    </div>
+                  </div>
+
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-4 gap-3">
+                    {[
+                      { label: 'Total Earned', value: `$${selectedUser.totalEarned.toFixed(2)}`, icon: <DollarSign size={16} /> },
+                      { label: 'Surveys Done', value: selectedUser.surveysCompleted.toString(), icon: <Users size={16} /> },
+                      { label: 'Login Count', value: selectedUser.loginCount.toString(), icon: <Globe size={16} /> },
+                      { label: 'Role', value: selectedUser.role, icon: <Smartphone size={16} /> },
+                    ].map((stat) => (
+                      <div key={stat.label} className="p-3 bg-[#F8FAFB] rounded-[8px] text-center">
+                        <div className="flex items-center justify-center text-[#22B9CF] mb-1">{stat.icon}</div>
+                        <p className="text-[14px] font-bold text-[#1A1A1A]">{stat.value}</p>
+                        <p className="text-[11px] text-[#999999]">{stat.label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Activity Log */}
+                  <div>
+                    <h4 className="text-[14px] font-bold text-[#1A1A1A] mb-2">Recent Activity</h4>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {userDetail && userDetail.activityLogs && userDetail.activityLogs.length > 0 ? (
+                        userDetail.activityLogs.map((log) => (
+                          <div key={log.id} className="flex items-center gap-3 p-2 rounded-[6px] hover:bg-[#F8FAFB] text-[13px]">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[#2DD9B6]" />
+                            <span className="font-medium text-[#1A1A1A]">{actionLabelMap[log.action] || log.action}</span>
+                            <span className="text-[#999999]">— {parseDetails(log.details)}</span>
+                            <span className="ml-auto text-[11px] text-[#999999]">{formatTimeAgo(log.createdAt)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-[12px] text-[#999999] py-2">No activity logs found</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* IP History */}
+                  <div>
+                    <h4 className="text-[14px] font-bold text-[#1A1A1A] mb-2">IP History</h4>
+                    <div className="space-y-1.5">
+                      {userDetail && userDetail.ips && userDetail.ips.length > 0 ? (
+                        userDetail.ips.map((ip) => (
+                          <div key={ip.id} className="flex items-center gap-2 text-[12px] p-2 rounded-[6px] hover:bg-[#F8FAFB]">
+                            <Globe size={14} className="text-[#999999]" />
+                            <span className="font-mono text-[#1A1A1A]">{ip.ipAddress}</span>
+                            <span className="text-[#999999]">{ip.city || 'Unknown'}, {ip.country || '??'}</span>
+                            {ip.isVpn && <Badge className="bg-[#FEF2F2] text-[#EF4444] text-[10px]">VPN</Badge>}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-[12px] text-[#999999] py-2">No IP history found</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-[#E5E7EB]">
+                    <Button
+                      size="sm"
+                      className="text-[12px] text-white"
+                      style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                      onClick={() => { openBalanceDialog(selectedUser); setDetailOpen(false) }}
+                    >
+                      <DollarSign size={14} className="mr-1" /> Adjust Balance
+                    </Button>
+                    {selectedUser.isBanned ? (
+                      <Button size="sm" className="text-[12px] bg-[#10B981] hover:bg-[#059669] text-white" onClick={() => { handleAction(selectedUser.id, 'unban'); setDetailOpen(false) }}>
+                        <UserCheck size={14} className="mr-1" /> Unban User
+                      </Button>
                     ) : (
-                      <Badge className="bg-[#FEF2F2] text-[#EF4444]">Unverified</Badge>
+                      <Button size="sm" variant="outline" className="text-[12px] border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white" onClick={() => { handleAction(selectedUser.id, 'ban'); setDetailOpen(false) }}>
+                        <Ban size={14} className="mr-1" /> Ban User
+                      </Button>
                     )}
+                    {!selectedUser.emailVerified && (
+                      <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, 'verify'); setDetailOpen(false) }}>
+                        <Mail size={14} className="mr-1" /> Verify Email
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, 'reset_fraud'); setDetailOpen(false) }}>
+                      <RefreshCw size={14} className="mr-1" /> Reset Fraud Score
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, selectedUser.isFlagged ? 'unflag' : 'flag'); setDetailOpen(false) }}>
+                      <Flag size={14} className="mr-1" /> {selectedUser.isFlagged ? 'Unflag' : 'Flag'}
+                    </Button>
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-[22px] font-bold text-[#1A1A1A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
-                    ${selectedUser.balance.toFixed(2)}
-                  </p>
-                  <p className="text-[12px] text-[#999999]">Balance</p>
-                </div>
-              </div>
-
-              {/* Stats Grid */}
-              <div className="grid grid-cols-4 gap-3">
-                {[
-                  { label: 'Total Earned', value: `$${selectedUser.totalEarned.toFixed(2)}`, icon: <DollarSign size={16} /> },
-                  { label: 'Surveys Done', value: selectedUser.surveysCompleted.toString(), icon: <Users size={16} /> },
-                  { label: 'Login Count', value: selectedUser.loginCount.toString(), icon: <Globe size={16} /> },
-                  { label: 'Role', value: selectedUser.role, icon: <Smartphone size={16} /> },
-                ].map((stat) => (
-                  <div key={stat.label} className="p-3 bg-[#F8FAFB] rounded-[8px] text-center">
-                    <div className="flex items-center justify-center text-[#22B9CF] mb-1">{stat.icon}</div>
-                    <p className="text-[14px] font-bold text-[#1A1A1A]">{stat.value}</p>
-                    <p className="text-[11px] text-[#999999]">{stat.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Activity Log */}
-              <div>
-                <h4 className="text-[14px] font-bold text-[#1A1A1A] mb-2">Recent Activity</h4>
-                <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                  {[
-                    { action: 'Survey completed', detail: 'Consumer Preferences Survey', time: '2 hours ago' },
-                    { action: 'Cashout requested', detail: '$25.50 via PayPal', time: '1 day ago' },
-                    { action: 'Login', detail: `IP: ${selectedUser.lastLoginIp || 'Unknown'}`, time: '2 days ago' },
-                    { action: 'Survey started', detail: 'Market Research 2025', time: '3 days ago' },
-                  ].map((log, i) => (
-                    <div key={i} className="flex items-center gap-3 p-2 rounded-[6px] hover:bg-[#F8FAFB] text-[13px]">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#2DD9B6]" />
-                      <span className="font-medium text-[#1A1A1A]">{log.action}</span>
-                      <span className="text-[#999999]">— {log.detail}</span>
-                      <span className="ml-auto text-[11px] text-[#999999]">{log.time}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* IP History */}
-              <div>
-                <h4 className="text-[14px] font-bold text-[#1A1A1A] mb-2">IP History</h4>
-                <div className="space-y-1.5">
-                  {[
-                    { ip: selectedUser.lastLoginIp || '192.168.1.1', country: 'US', city: 'New York', isVpn: false },
-                    { ip: '10.0.0.55', country: 'US', city: 'Chicago', isVpn: false },
-                    { ip: '45.33.32.156', country: 'DE', city: 'Berlin', isVpn: true },
-                  ].map((ip, i) => (
-                    <div key={i} className="flex items-center gap-2 text-[12px] p-2 rounded-[6px] hover:bg-[#F8FAFB]">
-                      <Globe size={14} className="text-[#999999]" />
-                      <span className="font-mono text-[#1A1A1A]">{ip.ip}</span>
-                      <span className="text-[#999999]">{ip.city}, {ip.country}</span>
-                      {ip.isVpn && <Badge className="bg-[#FEF2F2] text-[#EF4444] text-[10px]">VPN</Badge>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2 pt-2 border-t border-[#E5E7EB]">
-                <Button
-                  size="sm"
-                  className="text-[12px] text-white"
-                  style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-                  onClick={() => { openBalanceDialog(selectedUser); setDetailOpen(false) }}
-                >
-                  <DollarSign size={14} className="mr-1" /> Adjust Balance
-                </Button>
-                {selectedUser.isBanned ? (
-                  <Button size="sm" className="text-[12px] bg-[#10B981] hover:bg-[#059669] text-white" onClick={() => { handleAction(selectedUser.id, 'unban'); setDetailOpen(false) }}>
-                    <UserCheck size={14} className="mr-1" /> Unban User
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" className="text-[12px] border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white" onClick={() => { handleAction(selectedUser.id, 'ban'); setDetailOpen(false) }}>
-                    <Ban size={14} className="mr-1" /> Ban User
-                  </Button>
-                )}
-                {!selectedUser.emailVerified && (
-                  <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, 'verify'); setDetailOpen(false) }}>
-                    <Mail size={14} className="mr-1" /> Verify Email
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, 'reset_fraud'); setDetailOpen(false) }}>
-                  <RefreshCw size={14} className="mr-1" /> Reset Fraud Score
-                </Button>
-                <Button size="sm" variant="outline" className="text-[12px]" onClick={() => { handleAction(selectedUser.id, selectedUser.isFlagged ? 'unflag' : 'flag'); setDetailOpen(false) }}>
-                  <Flag size={14} className="mr-1" /> {selectedUser.isFlagged ? 'Unflag' : 'Flag'}
-                </Button>
-              </div>
+                </>
+              )}
             </>
           )}
         </DialogContent>
@@ -531,7 +801,7 @@ export function AdminUsers() {
                     <CheckCircle size={28} className="text-white" />
                   </div>
                   <h3 className="text-[16px] font-bold text-[#1A1A1A] mb-1">Balance Updated!</h3>
-                  <p className="text-[13px] text-[#999999]">{balanceUser.name || balanceUser.email}'s balance has been adjusted.</p>
+                  <p className="text-[13px] text-[#999999]">{balanceUser.name || balanceUser.email}&apos;s balance has been adjusted.</p>
                 </div>
               ) : (
                 <>
@@ -639,13 +909,19 @@ export function AdminUsers() {
                   {/* Submit */}
                   <Button
                     onClick={handleBalanceAdjust}
-                    disabled={!balanceAmount || parseFloat(balanceAmount) < 0 || isNaN(parseFloat(balanceAmount))}
+                    disabled={!balanceAmount || parseFloat(balanceAmount) < 0 || isNaN(parseFloat(balanceAmount)) || balanceSubmitting}
                     className="w-full h-[44px] text-white disabled:opacity-50"
                     style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
                   >
-                    {balanceAction === 'add' && 'Add Balance'}
-                    {balanceAction === 'subtract' && 'Subtract Balance'}
-                    {balanceAction === 'set' && 'Set Balance'}
+                    {balanceSubmitting ? (
+                      <><Loader2 size={16} className="mr-2 animate-spin" /> Processing...</>
+                    ) : (
+                      <>
+                        {balanceAction === 'add' && 'Add Balance'}
+                        {balanceAction === 'subtract' && 'Subtract Balance'}
+                        {balanceAction === 'set' && 'Set Balance'}
+                      </>
+                    )}
                   </Button>
                 </>
               )}
@@ -656,5 +932,3 @@ export function AdminUsers() {
     </div>
   )
 }
-
-

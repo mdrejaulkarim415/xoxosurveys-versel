@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,6 +45,9 @@ import {
   AlertCircle,
   ShieldAlert,
   Eye,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from 'lucide-react'
 
 interface CashoutRecord {
@@ -67,28 +70,20 @@ interface CashoutRecord {
   reviewedAt: string | null
 }
 
-const mockCashouts: CashoutRecord[] = [
-  { id: 'co1', userId: 'u1', userEmail: 'john@example.com', giftCardType: 'PayPal', amount: 25.50, status: 'pending', isFlagged: false, flagReason: null, ipAddress: '192.168.1.1', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-10T14:00:00Z', reviewedAt: null },
-  { id: 'co2', userId: 'u2', userEmail: 'sarah@example.com', giftCardType: 'Amazon', amount: 50.00, status: 'pending', isFlagged: false, flagReason: null, ipAddress: '10.0.0.55', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-10T12:00:00Z', reviewedAt: null },
-  { id: 'co3', userId: 'u3', userEmail: 'mike@example.com', giftCardType: 'Binance', amount: 15.00, status: 'pending', isFlagged: true, flagReason: 'VPN detected on cashout', ipAddress: '45.33.32.156', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-10T10:00:00Z', reviewedAt: null },
-  { id: 'co4', userId: 'u4', userEmail: 'emma@example.com', giftCardType: 'PayPal', amount: 100.00, status: 'processed', isFlagged: false, flagReason: null, ipAddress: '203.0.113.42', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-09T16:00:00Z', reviewedAt: '2025-03-09T18:00:00Z' },
-  { id: 'co5', userId: 'u5', userEmail: 'alex@example.com', giftCardType: 'Litecoin', amount: 10.00, status: 'rejected', isFlagged: true, flagReason: 'Fraudulent account', ipAddress: '172.16.0.1', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-09T12:00:00Z', reviewedAt: '2025-03-09T15:00:00Z' },
-  { id: 'co6', userId: 'u6', userEmail: 'lisa@example.com', giftCardType: 'Amazon', amount: 30.00, status: 'pending', isFlagged: true, flagReason: 'Multiple accounts same IP', ipAddress: '10.0.0.200', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-10T09:00:00Z', reviewedAt: null },
-  { id: 'co7', userId: 'u7', userEmail: 'dave@example.com', giftCardType: 'PayPal', amount: 75.00, status: 'processed', isFlagged: false, flagReason: null, ipAddress: '198.51.100.7', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-08T14:00:00Z', reviewedAt: '2025-03-08T16:00:00Z' },
-  { id: 'co8', userId: 'u8', userEmail: 'anna@example.com', giftCardType: 'Litecoin', amount: 20.00, status: 'approved', isFlagged: false, flagReason: null, ipAddress: '203.0.113.45', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-08T10:00:00Z', reviewedAt: '2025-03-08T12:00:00Z' },
-  { id: 'co9', userId: 'u9', userEmail: 'bot_user@example.com', giftCardType: 'Binance', amount: 200.00, status: 'flagged', isFlagged: true, flagReason: 'Bot account, suspicious amount', ipAddress: '45.33.32.156', isChargeback: false, chargebackReason: null, chargebackAmount: null, chargebackBy: null, chargebackAt: null, balanceDeducted: false, createdAt: '2025-03-07T22:00:00Z', reviewedAt: null },
-  // Chargeback records
-  { id: 'co10', userId: 'u10', userEmail: 'james@example.com', giftCardType: 'PayPal', amount: 50.00, status: 'chargeback', isFlagged: false, flagReason: null, ipAddress: '192.168.2.1', isChargeback: true, chargebackReason: 'Payment reversed by PayPal - buyer dispute', chargebackAmount: 50.00, chargebackBy: 'admin@xoxosurveys.com', chargebackAt: '2025-03-10T08:00:00Z', balanceDeducted: true, createdAt: '2025-03-05T14:00:00Z', reviewedAt: '2025-03-05T16:00:00Z' },
-  { id: 'co11', userId: 'u11', userEmail: 'kate@example.com', giftCardType: 'Binance', amount: 75.00, status: 'chargeback', isFlagged: true, flagReason: 'Chargeback - fraudulent transaction', ipAddress: '10.0.0.99', isChargeback: true, chargebackReason: 'Fraudulent transaction - USDT transfer reversed', chargebackAmount: 75.00, chargebackBy: 'admin@xoxosurveys.com', chargebackAt: '2025-03-09T12:00:00Z', balanceDeducted: true, createdAt: '2025-03-04T10:00:00Z', reviewedAt: '2025-03-04T12:00:00Z' },
-  { id: 'co12', userId: 'u12', userEmail: 'robert@example.com', giftCardType: 'Litecoin', amount: 25.00, status: 'chargeback', isFlagged: false, flagReason: null, ipAddress: '203.0.113.88', isChargeback: true, chargebackReason: 'User filed dispute after receiving LTC', chargebackAmount: 25.00, chargebackBy: 'admin@xoxosurveys.com', chargebackAt: '2025-03-08T18:00:00Z', balanceDeducted: false, createdAt: '2025-03-03T16:00:00Z', reviewedAt: '2025-03-03T18:00:00Z' },
-]
-
 export function AdminCashouts() {
-  const [cashouts, setCashouts] = useState(mockCashouts)
+  const [cashouts, setCashouts] = useState<CashoutRecord[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [methodFilter, setMethodFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  // Loading & pagination state
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const limit = 20
 
   // Chargeback dialog state
   const [chargebackOpen, setChargebackOpen] = useState(false)
@@ -102,10 +97,57 @@ export function AdminCashouts() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailCashout, setDetailCashout] = useState<CashoutRecord | null>(null)
 
+  const fetchCashouts = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(page))
+      params.set('limit', String(limit))
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+      if (methodFilter && methodFilter !== 'all') params.set('giftCardType', methodFilter)
+
+      const res = await fetch(`/api/admin/cashouts?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to fetch cashouts')
+      const data = await res.json()
+
+      const mapped: CashoutRecord[] = (data.cashouts || []).map((c: Record<string, unknown>) => ({
+        id: c.id as string,
+        userId: (c.userId as string) || (c.user && (c.user as Record<string, unknown>).id as string) || '',
+        userEmail: (c.user && (c.user as Record<string, unknown>).email as string) || (c.userEmail as string) || '',
+        giftCardType: (c.giftCardType as string) || '',
+        amount: typeof c.amount === 'number' ? c.amount : parseFloat(String(c.amount || 0)),
+        status: (c.status as string) || '',
+        isFlagged: Boolean(c.isFlagged),
+        flagReason: (c.flagReason as string | null) ?? null,
+        ipAddress: (c.ipAddress as string | null) ?? null,
+        isChargeback: Boolean(c.isChargeback),
+        chargebackReason: (c.chargebackReason as string | null) ?? null,
+        chargebackAmount: c.chargebackAmount != null ? (typeof c.chargebackAmount === 'number' ? c.chargebackAmount : parseFloat(String(c.chargebackAmount))) : null,
+        chargebackBy: (c.chargebackBy as string | null) ?? null,
+        chargebackAt: (c.chargebackAt as string | null) ?? null,
+        balanceDeducted: Boolean(c.balanceDeducted),
+        createdAt: c.createdAt ? new Date(c.createdAt as string).toISOString() : new Date().toISOString(),
+        reviewedAt: (c.reviewedAt as string | null) ?? null,
+      }))
+
+      setCashouts(mapped)
+      setTotal(data.total || 0)
+      setTotalPages(Math.ceil((data.total || 0) / limit))
+    } catch (err) {
+      console.error('Failed to fetch cashouts:', err)
+      setCashouts([])
+    } finally {
+      setLoading(false)
+    }
+  }, [page, statusFilter, methodFilter])
+
+  useEffect(() => {
+    fetchCashouts()
+  }, [fetchCashouts])
+
+  // Client-side search filter on top of server-side filters
   const filtered = cashouts.filter((c) => {
     if (search && !c.userEmail.toLowerCase().includes(search.toLowerCase())) return false
-    if (statusFilter !== 'all' && c.status !== statusFilter) return false
-    if (methodFilter !== 'all' && c.giftCardType !== methodFilter) return false
     return true
   })
 
@@ -117,32 +159,59 @@ export function AdminCashouts() {
   }
 
   const toggleAll = () => {
-    if (selectedIds.size === filtered.length) {
+    if (selectedIds.size === filtered.filter((c) => c.status === 'pending').length && filtered.filter((c) => c.status === 'pending').length > 0) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(filtered.map((c) => c.id)))
+      setSelectedIds(new Set(filtered.filter((c) => c.status === 'pending').map((c) => c.id)))
     }
   }
 
-  const updateStatus = (id: string, newStatus: string) => {
-    setCashouts((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, status: newStatus, reviewedAt: newStatus !== 'pending' ? new Date().toISOString() : null }
-          : c
-      )
-    )
+  const updateStatus = async (id: string, newStatus: string) => {
+    setActionLoading(id)
+    try {
+      const body: Record<string, unknown> = { status: newStatus, reviewedBy: 'admin' }
+      if (newStatus === 'flagged') {
+        body.isFlagged = true
+        body.flagReason = 'Flagged by admin'
+      }
+      const res = await fetch(`/api/admin/cashouts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('Failed to update cashout status')
+      await fetchCashouts()
+    } catch (err) {
+      console.error('Failed to update cashout status:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const bulkApprove = () => {
-    setCashouts((prev) =>
-      prev.map((c) =>
-        selectedIds.has(c.id) && c.status === 'pending'
-          ? { ...c, status: 'approved', reviewedAt: new Date().toISOString() }
-          : c
-      )
+  const bulkApprove = async () => {
+    const idsToApprove = Array.from(selectedIds).filter((id) =>
+      cashouts.find((c) => c.id === id && c.status === 'pending')
     )
-    setSelectedIds(new Set())
+    if (idsToApprove.length === 0) return
+
+    setActionLoading('bulk')
+    try {
+      await Promise.all(
+        idsToApprove.map((id) =>
+          fetch(`/api/admin/cashouts/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'approved', reviewedBy: 'admin' }),
+          })
+        )
+      )
+      setSelectedIds(new Set())
+      await fetchCashouts()
+    } catch (err) {
+      console.error('Failed to bulk approve:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const openChargebackDialog = (cashout: CashoutRecord) => {
@@ -154,35 +223,36 @@ export function AdminCashouts() {
     setChargebackOpen(true)
   }
 
-  const handleChargeback = () => {
+  const handleChargeback = async () => {
     if (!chargebackCashout || (!chargebackReason && !chargebackCustomReason)) return
 
     const finalReason = chargebackReason === 'other' ? chargebackCustomReason : chargebackReason
 
-    setCashouts((prev) =>
-      prev.map((c) =>
-        c.id === chargebackCashout!.id
-          ? {
-              ...c,
-              status: 'chargeback',
-              isChargeback: true,
-              chargebackReason: finalReason,
-              chargebackAmount: c.amount,
-              chargebackBy: 'admin@xoxosurveys.com',
-              chargebackAt: new Date().toISOString(),
-              balanceDeducted: deductBalance,
-              isFlagged: true,
-              flagReason: `Chargeback: ${finalReason}`,
-            }
-          : c
-      )
-    )
+    setActionLoading(chargebackCashout.id)
+    try {
+      const res = await fetch(`/api/admin/cashouts/${chargebackCashout.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'chargeback',
+          chargebackReason: finalReason,
+          chargebackBy: 'admin',
+          deductBalance,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to process chargeback')
 
-    setChargebackSuccess(true)
-    setTimeout(() => {
-      setChargebackOpen(false)
-      setChargebackSuccess(false)
-    }, 2000)
+      setChargebackSuccess(true)
+      await fetchCashouts()
+      setTimeout(() => {
+        setChargebackOpen(false)
+        setChargebackSuccess(false)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to process chargeback:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -319,7 +389,7 @@ export function AdminCashouts() {
                       className="pl-9 h-9 text-[13px] border-[#E5E7EB]"
                     />
                   </div>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val); setPage(1) }}>
                     <SelectTrigger className="w-[140px] h-9 text-[13px]"><SelectValue placeholder="Status" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
@@ -331,7 +401,7 @@ export function AdminCashouts() {
                       <SelectItem value="chargeback">Chargeback</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={methodFilter} onValueChange={setMethodFilter}>
+                  <Select value={methodFilter} onValueChange={(val) => { setMethodFilter(val); setPage(1) }}>
                     <SelectTrigger className="w-[130px] h-9 text-[13px]"><SelectValue placeholder="Method" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Methods</SelectItem>
@@ -342,8 +412,9 @@ export function AdminCashouts() {
                     </SelectContent>
                   </Select>
                   {tab === 'pending' && selectedIds.size > 0 && (
-                    <Button size="sm" className="text-[12px] text-white bg-[#10B981] hover:bg-[#059669]" onClick={bulkApprove}>
-                      <CheckCircle size={14} className="mr-1" /> Approve {selectedIds.size} Selected
+                    <Button size="sm" className="text-[12px] text-white bg-[#10B981] hover:bg-[#059669]" onClick={bulkApprove} disabled={actionLoading === 'bulk'}>
+                      {actionLoading === 'bulk' ? <Loader2 size={14} className="mr-1 animate-spin" /> : <CheckCircle size={14} className="mr-1" />}
+                      Approve {selectedIds.size} Selected
                     </Button>
                   )}
                 </div>
@@ -422,7 +493,27 @@ export function AdminCashouts() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered
+                      {loading ? (
+                        <TableRow>
+                          <TableCell colSpan={tab === 'pending' ? 9 : 8} className="text-center py-12">
+                            <Loader2 size={24} className="animate-spin mx-auto text-[#999999]" />
+                            <p className="text-[13px] text-[#999999] mt-2">Loading cashouts...</p>
+                          </TableCell>
+                        </TableRow>
+                      ) : filtered
+                        .filter((c) => {
+                          if (tab === 'pending') return c.status === 'pending'
+                          if (tab === 'flagged') return c.isFlagged && c.status !== 'chargeback'
+                          if (tab === 'chargebacks') return c.isChargeback
+                          return true
+                        })
+                        .length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={tab === 'pending' ? 9 : 8} className="text-center py-12">
+                            <p className="text-[13px] text-[#999999]">No cashouts found</p>
+                          </TableCell>
+                        </TableRow>
+                      ) : filtered
                         .filter((c) => {
                           if (tab === 'pending') return c.status === 'pending'
                           if (tab === 'flagged') return c.isFlagged && c.status !== 'chargeback'
@@ -460,49 +551,55 @@ export function AdminCashouts() {
                           <TableCell className="text-[11px] text-[#999999]">{new Date(cashout.createdAt).toLocaleDateString()}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
-                              {cashout.status === 'pending' && (
+                              {actionLoading === cashout.id ? (
+                                <Loader2 size={14} className="animate-spin text-[#999999]" />
+                              ) : (
                                 <>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-[#10B981]" onClick={() => updateStatus(cashout.id, 'approved')}>
-                                    <CheckCircle size={14} />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => updateStatus(cashout.id, 'rejected')}>
-                                    <XCircle size={14} />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-[#F59E0B]" onClick={() => updateStatus(cashout.id, 'flagged')}>
-                                    <Flag size={14} />
-                                  </Button>
+                                  {cashout.status === 'pending' && (
+                                    <>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-[#10B981]" onClick={() => updateStatus(cashout.id, 'approved')}>
+                                        <CheckCircle size={14} />
+                                      </Button>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-[#EF4444]" onClick={() => updateStatus(cashout.id, 'rejected')}>
+                                        <XCircle size={14} />
+                                      </Button>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-[#F59E0B]" onClick={() => updateStatus(cashout.id, 'flagged')}>
+                                        <Flag size={14} />
+                                      </Button>
+                                    </>
+                                  )}
+                                  {(cashout.status === 'approved' || cashout.status === 'processed') && !cashout.isChargeback && (
+                                    <>
+                                      <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => updateStatus(cashout.id, 'processed')}>
+                                        Process
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7 text-[#7C3AED]"
+                                        title="Mark as Chargeback"
+                                        onClick={() => openChargebackDialog(cashout)}
+                                      >
+                                        <RotateCcw size={14} />
+                                      </Button>
+                                    </>
+                                  )}
+                                  {cashout.isChargeback && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-[11px] border-[#7C3AED] text-[#7C3AED]"
+                                      onClick={() => { setDetailCashout(cashout); setDetailOpen(true) }}
+                                    >
+                                      <Eye size={12} className="mr-1" /> Details
+                                    </Button>
+                                  )}
+                                  {cashout.status === 'flagged' && (
+                                    <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => updateStatus(cashout.id, 'processed')}>
+                                      Process
+                                    </Button>
+                                  )}
                                 </>
-                              )}
-                              {(cashout.status === 'approved' || cashout.status === 'processed') && !cashout.isChargeback && (
-                                <>
-                                  <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => updateStatus(cashout.id, 'processed')}>
-                                    Process
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7 text-[#7C3AED]"
-                                    title="Mark as Chargeback"
-                                    onClick={() => openChargebackDialog(cashout)}
-                                  >
-                                    <RotateCcw size={14} />
-                                  </Button>
-                                </>
-                              )}
-                              {cashout.isChargeback && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-[11px] border-[#7C3AED] text-[#7C3AED]"
-                                  onClick={() => { setDetailCashout(cashout); setDetailOpen(true) }}
-                                >
-                                  <Eye size={12} className="mr-1" /> Details
-                                </Button>
-                              )}
-                              {cashout.status === 'flagged' && (
-                                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => updateStatus(cashout.id, 'processed')}>
-                                  Process
-                                </Button>
                               )}
                             </div>
                           </TableCell>
@@ -511,6 +608,38 @@ export function AdminCashouts() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-[#E5E7EB]">
+                    <p className="text-[12px] text-[#999999]">
+                      Showing {((page - 1) * limit) + 1}–{Math.min(page * limit, total)} of {total}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft size={14} />
+                      </Button>
+                      <span className="text-[12px] text-[#555555]">
+                        Page {page} of {totalPages}
+                      </span>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      >
+                        <ChevronRight size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -651,11 +780,15 @@ export function AdminCashouts() {
                   {/* Submit */}
                   <Button
                     onClick={handleChargeback}
-                    disabled={!chargebackReason || (chargebackReason === 'other' && !chargebackCustomReason)}
+                    disabled={!chargebackReason || (chargebackReason === 'other' && !chargebackCustomReason) || actionLoading === chargebackCashout.id}
                     className="w-full h-[44px] text-white disabled:opacity-50"
                     style={{ background: '#7C3AED' }}
                   >
-                    <RotateCcw size={16} className="mr-2" />
+                    {actionLoading === chargebackCashout.id ? (
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                    ) : (
+                      <RotateCcw size={16} className="mr-2" />
+                    )}
                     Confirm Chargeback
                   </Button>
                 </>

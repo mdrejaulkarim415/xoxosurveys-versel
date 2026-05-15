@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,13 +9,6 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Settings,
   Shield,
@@ -27,6 +20,7 @@ import {
   Clock,
   AlertTriangle,
   LayoutGrid,
+  Loader2,
 } from 'lucide-react'
 
 interface SettingsState {
@@ -65,29 +59,90 @@ const defaultSettings: SettingsState = {
   defaultBlockProxy: true,
   defaultMinFraudScore: 50,
   defaultCooldown: 5,
-  emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of ${'{amount}'} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
-  emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of ${'{amount}'} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
+  emailTemplateCashoutApproved: `Hi {name},\n\nYour cashout of {amount} has been approved and will be processed shortly.\n\nThank you for using XoXoSurveys!\n\nBest regards,\nXoXoSurveys Team`,
+  emailTemplateCashoutRejected: `Hi {name},\n\nYour cashout request of {amount} has been rejected. Reason: {reason}.\n\nIf you believe this is an error, please contact our support team.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateFraudWarning: `Hi {name},\n\nWe have detected suspicious activity on your account. Please verify your identity to continue using XoXoSurveys.\n\nIf you did not initiate this activity, please contact support immediately.\n\nBest regards,\nXoXoSurveys Team`,
   emailTemplateWelcome: `Hi {name},\n\nWelcome to XoXoSurveys! Start earning money by completing surveys.\n\nHere's what you can do:\n- Complete surveys and earn rewards\n- Invite friends and earn 10% bonus\n- Cash out via PayPal, Amazon, and more\n\nBest regards,\nXoXoSurveys Team`,
+}
+
+function parseSettingsFromApi(apiData: Record<string, string>): SettingsState {
+  const parsed = { ...defaultSettings }
+  for (const [key, value] of Object.entries(apiData)) {
+    if (key in parsed) {
+      const currentValue = parsed[key as keyof SettingsState]
+      if (typeof currentValue === 'boolean') {
+        ;(parsed as Record<string, unknown>)[key] = value === 'true'
+      } else if (typeof currentValue === 'number') {
+        ;(parsed as Record<string, unknown>)[key] = Number(value)
+      } else {
+        ;(parsed as Record<string, unknown>)[key] = value
+      }
+    }
+  }
+  return parsed
 }
 
 export function AdminSettings() {
   const [settings, setSettings] = useState<SettingsState>(defaultSettings)
   const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      setLoading(true)
+      const res = await fetch('/api/admin/settings')
+      if (res.ok) {
+        const data = await res.json()
+        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+          setSettings(parseSettingsFromApi(data as Record<string, string>))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch settings:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
 
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
     setSaved(false)
   }
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      })
+      if (!res.ok) throw new Error('Failed to save settings')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      console.error('Save settings error:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleReset = () => {
     setSettings(defaultSettings)
     setSaved(false)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[#2DD9B6]" />
+      </div>
+    )
   }
 
   return (
@@ -340,8 +395,10 @@ export function AdminSettings() {
               className="text-white text-[13px]"
               style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
               onClick={handleSave}
+              disabled={saving}
             >
-              <Save size={14} className="mr-1" /> Save Settings
+              {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Save size={14} className="mr-1" />}
+              Save Settings
             </Button>
           </div>
         </CardContent>

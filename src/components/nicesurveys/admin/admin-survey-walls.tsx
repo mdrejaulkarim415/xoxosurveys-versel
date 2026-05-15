@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,93 +59,6 @@ interface SurveyWall {
   createdAt: string
 }
 
-const mockWalls: SurveyWall[] = [
-  {
-    id: 'wall_1',
-    name: 'CPX Research',
-    provider: 'cpx-research',
-    apiKey: 'cpx_live_abc123',
-    apiSecret: 'cpx_secret_xyz789',
-    endpointUrl: 'https://api.cpx-research.com/v1',
-    isActive: true,
-    priority: 10,
-    minPayout: 0.10,
-    maxPayout: 5.00,
-    description: 'CPX Research - High quality surveys with good completion rates',
-    blockVpn: true,
-    blockProxy: true,
-    minFraudScore: 50,
-    cooldownMinutes: 5,
-    surveysAvailable: 24,
-    completions: 1520,
-    revenue: 3420.50,
-    createdAt: '2024-06-15',
-  },
-  {
-    id: 'wall_2',
-    name: 'Bitlabs',
-    provider: 'bitlabs',
-    apiKey: 'bit_live_def456',
-    apiSecret: 'bit_secret_uvW321',
-    endpointUrl: 'https://api.bitlabs.com/v2',
-    isActive: true,
-    priority: 8,
-    minPayout: 0.05,
-    maxPayout: 3.00,
-    description: 'Bitlabs - Wide variety of surveys globally',
-    blockVpn: true,
-    blockProxy: false,
-    minFraudScore: 40,
-    cooldownMinutes: 3,
-    surveysAvailable: 18,
-    completions: 980,
-    revenue: 1890.25,
-    createdAt: '2024-08-20',
-  },
-  {
-    id: 'wall_3',
-    name: 'Inbrain',
-    provider: 'inbrain',
-    apiKey: 'inb_live_ghi789',
-    apiSecret: 'inb_secret_rst654',
-    endpointUrl: 'https://api.inbrain.ai/v1',
-    isActive: false,
-    priority: 5,
-    minPayout: 0.20,
-    maxPayout: 4.00,
-    description: 'Inbrain - Premium market research surveys',
-    blockVpn: true,
-    blockProxy: true,
-    minFraudScore: 60,
-    cooldownMinutes: 10,
-    surveysAvailable: 0,
-    completions: 420,
-    revenue: 980.75,
-    createdAt: '2024-10-05',
-  },
-  {
-    id: 'wall_4',
-    name: 'Revtoo',
-    provider: 'revtoo',
-    apiKey: '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy',
-    apiSecret: null,
-    endpointUrl: 'https://revtoo.com/api/offers/',
-    isActive: true,
-    priority: 15,
-    minPayout: 0.05,
-    maxPayout: 10.00,
-    description: 'Revtoo - Survey provider with offer ID 56443 (Revtoo Surveys). Available worldwide on all platforms.',
-    blockVpn: false,
-    blockProxy: false,
-    minFraudScore: 70,
-    cooldownMinutes: 0,
-    surveysAvailable: 1,
-    completions: 0,
-    revenue: 0,
-    createdAt: '2025-05-14',
-  },
-]
-
 const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'revenue' | 'createdAt'> = {
   name: '',
   provider: 'cpx-research',
@@ -164,12 +77,33 @@ const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'r
 }
 
 export function AdminSurveyWalls() {
-  const [walls, setWalls] = useState(mockWalls)
+  const [walls, setWalls] = useState<SurveyWall[]>([])
+  const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editWall, setEditWall] = useState<SurveyWall | null>(null)
   const [formData, setFormData] = useState(emptyWall)
+  const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'fail' | null>>({})
+
+  const fetchWalls = useCallback(async () => {
+    try {
+      setLoading(true)
+      const res = await fetch('/api/admin/survey-walls')
+      if (res.ok) {
+        const data = await res.json()
+        setWalls(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch walls:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchWalls()
+  }, [fetchWalls])
 
   const openCreate = () => {
     setFormData(emptyWall)
@@ -198,37 +132,55 @@ export function AdminSurveyWalls() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
-    if (editWall) {
-      setWalls((prev) =>
-        prev.map((w) =>
-          w.id === editWall.id
-            ? { ...w, ...formData }
-            : w
-        )
-      )
-    } else {
-      const newWall: SurveyWall = {
-        id: `wall_${Date.now()}`,
-        ...formData,
-        surveysAvailable: 0,
-        completions: 0,
-        revenue: 0,
-        createdAt: new Date().toISOString().split('T')[0],
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      if (editWall) {
+        const res = await fetch(`/api/admin/survey-walls/${editWall.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        })
+        if (!res.ok) throw new Error('Failed to update wall')
+      } else {
+        const res = await fetch('/api/admin/survey-walls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        })
+        if (!res.ok) throw new Error('Failed to create wall')
       }
-      setWalls((prev) => [...prev, newWall])
+      setShowForm(false)
+      await fetchWalls()
+    } catch (err) {
+      console.error('Save wall error:', err)
+    } finally {
+      setSaving(false)
     }
-    setShowForm(false)
   }
 
-  const toggleActive = (id: string) => {
-    setWalls((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, isActive: !w.isActive } : w))
-    )
+  const toggleActive = async (wall: SurveyWall) => {
+    try {
+      const res = await fetch(`/api/admin/survey-walls/${wall.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !wall.isActive }),
+      })
+      if (!res.ok) throw new Error('Failed to toggle wall')
+      await fetchWalls()
+    } catch (err) {
+      console.error('Toggle wall error:', err)
+    }
   }
 
-  const deleteWall = (id: string) => {
-    setWalls((prev) => prev.filter((w) => w.id !== id))
+  const deleteWall = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/survey-walls/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete wall')
+      await fetchWalls()
+    } catch (err) {
+      console.error('Delete wall error:', err)
+    }
   }
 
   const testConnection = async (wall: SurveyWall) => {
@@ -251,6 +203,14 @@ export function AdminSurveyWalls() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[#2DD9B6]" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -271,98 +231,108 @@ export function AdminSurveyWalls() {
       </div>
 
       {/* Wall Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-        {walls.map((wall) => (
-          <Card key={wall.id} className={`border-[#E5E7EB] shadow-sm ${!wall.isActive ? 'opacity-70' : ''}`}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-[42px] h-[42px] rounded-[10px] flex items-center justify-center"
-                    style={{ background: `${getProviderColor(wall.provider)}15`, color: getProviderColor(wall.provider) }}
-                  >
-                    <LayoutGrid size={20} />
+      {walls.length === 0 ? (
+        <Card className="border-[#E5E7EB] shadow-sm">
+          <CardContent className="py-16 text-center">
+            <LayoutGrid size={40} className="mx-auto text-[#D1D5DB] mb-3" />
+            <p className="text-[14px] text-[#999999]">No survey walls configured</p>
+            <p className="text-[12px] text-[#CCCCCC] mt-1">Click "Add Wall" to create your first survey wall provider</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {walls.map((wall) => (
+            <Card key={wall.id} className={`border-[#E5E7EB] shadow-sm ${!wall.isActive ? 'opacity-70' : ''}`}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-[42px] h-[42px] rounded-[10px] flex items-center justify-center"
+                      style={{ background: `${getProviderColor(wall.provider)}15`, color: getProviderColor(wall.provider) }}
+                    >
+                      <LayoutGrid size={20} />
+                    </div>
+                    <div>
+                      <CardTitle className="text-[15px] font-bold text-[#1A1A1A]">{wall.name}</CardTitle>
+                      <p className="text-[12px] text-[#999999]">{wall.provider}</p>
+                    </div>
                   </div>
-                  <div>
-                    <CardTitle className="text-[15px] font-bold text-[#1A1A1A]">{wall.name}</CardTitle>
-                    <p className="text-[12px] text-[#999999]">{wall.provider}</p>
+                  <Badge className={wall.isActive ? 'bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]' : 'bg-[#F5F5F5] text-[#999999] hover:bg-[#F5F5F5]'}>
+                    {wall.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
+                    <p className="text-[14px] font-bold text-[#1A1A1A]">{wall.surveysAvailable}</p>
+                    <p className="text-[10px] text-[#999999]">Available</p>
+                  </div>
+                  <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
+                    <p className="text-[14px] font-bold text-[#1A1A1A]">{wall.completions.toLocaleString()}</p>
+                    <p className="text-[10px] text-[#999999]">Completions</p>
+                  </div>
+                  <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
+                    <p className="text-[14px] font-bold text-[#2DD9B6]">${wall.revenue.toLocaleString()}</p>
+                    <p className="text-[10px] text-[#999999]">Revenue</p>
                   </div>
                 </div>
-                <Badge className={wall.isActive ? 'bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]' : 'bg-[#F5F5F5] text-[#999999] hover:bg-[#F5F5F5]'}>
-                  {wall.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
-                  <p className="text-[14px] font-bold text-[#1A1A1A]">{wall.surveysAvailable}</p>
-                  <p className="text-[10px] text-[#999999]">Available</p>
+
+                {/* Payout Range */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[#999999]">Payout range:</span>
+                  <span className="font-medium text-[#1A1A1A]">${wall.minPayout.toFixed(2)} — ${wall.maxPayout.toFixed(2)}</span>
                 </div>
-                <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
-                  <p className="text-[14px] font-bold text-[#1A1A1A]">{wall.completions.toLocaleString()}</p>
-                  <p className="text-[10px] text-[#999999]">Completions</p>
+
+                {/* Anti-Fraud */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[#999999]">Fraud threshold:</span>
+                  <span className="font-medium text-[#1A1A1A]">{wall.minFraudScore}/100</span>
                 </div>
-                <div className="p-2 bg-[#F8FAFB] rounded-[6px] text-center">
-                  <p className="text-[14px] font-bold text-[#2DD9B6]">${wall.revenue.toLocaleString()}</p>
-                  <p className="text-[10px] text-[#999999]">Revenue</p>
-                </div>
-              </div>
 
-              {/* Payout Range */}
-              <div className="flex items-center justify-between text-[12px]">
-                <span className="text-[#999999]">Payout range:</span>
-                <span className="font-medium text-[#1A1A1A]">${wall.minPayout.toFixed(2)} — ${wall.maxPayout.toFixed(2)}</span>
-              </div>
-
-              {/* Anti-Fraud */}
-              <div className="flex items-center justify-between text-[12px]">
-                <span className="text-[#999999]">Fraud threshold:</span>
-                <span className="font-medium text-[#1A1A1A]">{wall.minFraudScore}/100</span>
-              </div>
-
-              {/* API Status */}
-              <div className="flex items-center gap-2">
-                {testResults[wall.id] === 'success' ? (
-                  <Badge className="bg-[#ECFDF5] text-[#10B981]"><CheckCircle size={12} className="mr-1" /> Connected</Badge>
-                ) : testResults[wall.id] === 'fail' ? (
-                  <Badge className="bg-[#FEF2F2] text-[#EF4444]"><XCircle size={12} className="mr-1" /> Failed</Badge>
-                ) : (
-                  <Badge className="bg-[#F5F5F5] text-[#999999]">{wall.endpointUrl ? 'Not tested' : 'No endpoint'}</Badge>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-2 pt-2 border-t border-[#E5E7EB]">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 h-8 text-[12px]"
-                  onClick={() => testConnection(wall)}
-                  disabled={testing === wall.id}
-                >
-                  {testing === wall.id ? (
-                    <Loader2 size={14} className="mr-1 animate-spin" />
+                {/* API Status */}
+                <div className="flex items-center gap-2">
+                  {testResults[wall.id] === 'success' ? (
+                    <Badge className="bg-[#ECFDF5] text-[#10B981]"><CheckCircle size={12} className="mr-1" /> Connected</Badge>
+                  ) : testResults[wall.id] === 'fail' ? (
+                    <Badge className="bg-[#FEF2F2] text-[#EF4444]"><XCircle size={12} className="mr-1" /> Failed</Badge>
                   ) : (
-                    <TestTube size={14} className="mr-1" />
+                    <Badge className="bg-[#F5F5F5] text-[#999999]">{wall.endpointUrl ? 'Not tested' : 'No endpoint'}</Badge>
                   )}
-                  Test
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px]" onClick={() => toggleActive(wall.id)}>
-                  {wall.isActive ? <WifiOff size={14} /> : <Wifi size={14} />}
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px]" onClick={() => openEdit(wall)}>
-                  <Edit size={14} />
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px] border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white" onClick={() => deleteWall(wall.id)}>
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-2 border-t border-[#E5E7EB]">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-8 text-[12px]"
+                    onClick={() => testConnection(wall)}
+                    disabled={testing === wall.id}
+                  >
+                    {testing === wall.id ? (
+                      <Loader2 size={14} className="mr-1 animate-spin" />
+                    ) : (
+                      <TestTube size={14} className="mr-1" />
+                    )}
+                    Test
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px]" onClick={() => toggleActive(wall)}>
+                    {wall.isActive ? <WifiOff size={14} /> : <Wifi size={14} />}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px]" onClick={() => openEdit(wall)}>
+                    <Edit size={14} />
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-[12px] border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white" onClick={() => deleteWall(wall.id)}>
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -553,8 +523,9 @@ export function AdminSurveyWalls() {
                 className="flex-1 text-white"
                 style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
                 onClick={handleSave}
-                disabled={!formData.name}
+                disabled={!formData.name || saving}
               >
+                {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : null}
                 {editWall ? 'Save Changes' : 'Create Wall'}
               </Button>
               <Button variant="outline" onClick={() => setShowForm(false)}>
