@@ -19,10 +19,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User is banned' }, { status: 403 })
     }
 
+    // Check if RevToo is disabled in admin settings
+    const revtooSetting = await db.adminSettings.findUnique({
+      where: { key: 'revtooEnabled' },
+    })
+    const revtooDisabled = revtooSetting && revtooSetting.value === 'false'
+
     const walls = await db.surveyWall.findMany({
       where: {
         isActive: true,
         minFraudScore: { gte: user.fraudScore },
+        ...(revtooDisabled ? { provider: { not: 'revtoo' } } : {}),
       },
       orderBy: { priority: 'desc' },
       select: {

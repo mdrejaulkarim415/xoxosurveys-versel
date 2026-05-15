@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 
 const REVTOO_API_KEY = '8wq03m1vsqq5xvfq9ejxaxz2v7vfzy'
 const REVTOO_API_URL = 'https://revtoo.com/api/offers/'
@@ -6,6 +7,7 @@ const TARGET_OFFER_ID = 56443
 
 /**
  * Fetch the specific Revtoo survey offer (ID 56443) and generate redirect URL for the user
+ * Checks admin setting revtooEnabled before returning offer
  */
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +16,14 @@ export async function GET(request: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
+    }
+
+    // Check if RevToo is enabled in admin settings
+    const revtooSetting = await db.adminSettings.findUnique({
+      where: { key: 'revtooEnabled' },
+    })
+    if (revtooSetting && revtooSetting.value === 'false') {
+      return NextResponse.json({ error: 'RevToo surveys are currently disabled', disabled: true }, { status: 403 })
     }
 
     // Fetch offers from Revtoo API
