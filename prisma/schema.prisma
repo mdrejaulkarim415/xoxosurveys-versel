@@ -207,6 +207,7 @@ model Cashout {
   userId          String
   giftCardType    String   // "binance", "litecoin", "paypal", "amazon", "google-play", etc.
   amount          Float
+  paymentDetail   String?  // Binance ID / Litecoin Address / PayPal Email - where to send payment
   status          String   @default("pending") // "pending" | "approved" | "processed" | "rejected" | "flagged" | "chargeback"
   
   // Anti-fraud
