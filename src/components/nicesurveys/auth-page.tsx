@@ -14,6 +14,7 @@ export function AuthPage() {
   const [invitationCode, setInvitationCode] = useState('')
   const [forgotPassword, setForgotPassword] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -145,6 +146,38 @@ export function AuthPage() {
       handleLogin()
     } else {
       handleRegister()
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    if (!forgotEmail) {
+      setError('Please enter your email address')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to send reset email')
+        return
+      }
+
+      // Show success state — always show success to prevent email enumeration
+      setForgotSent(true)
+    } catch (err) {
+      setError('Network error. Please check your connection and try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -841,29 +874,73 @@ export function AuthPage() {
                 <>
                   <div className="flex items-center gap-2 mb-5">
                     <svg className="w-[20px] h-[20px] text-[#0FBCC0] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 8v4M12 16h.01" />
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
                     <p className="text-[14px] font-semibold text-[#36383A]">Reset your password</p>
                   </div>
-                  <div className="space-y-3 mb-4">
-                    <input
-                      type="email"
-                      placeholder="Enter your email"
-                      value={forgotEmail}
-                      onChange={(e) => setForgotEmail(e.target.value)}
-                      className="ns-input"
-                    />
-                  </div>
-                  <button
-                    onClick={() => setForgotPassword(false)}
-                    className="ns-btn-primary w-full h-[44px]"
-                  >
-                    Send reset link
-                  </button>
+
+                  {!forgotSent ? (
+                    <>
+                      <p className="text-[13px] text-[#666666] mb-4">
+                        Enter your email and we&apos;ll send you a link to reset your password.
+                      </p>
+                      <div className="space-y-3 mb-4">
+                        <input
+                          type="email"
+                          placeholder="Enter your email"
+                          value={forgotEmail}
+                          onChange={(e) => { setForgotEmail(e.target.value); setError(null) }}
+                          onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                          disabled={loading}
+                          className="ns-input"
+                        />
+                      </div>
+                      <button
+                        onClick={handleForgotPassword}
+                        disabled={loading}
+                        className="ns-btn-primary w-full h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {loading ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 2a10 10 0 0 1 10 10" />
+                            </svg>
+                            Sending...
+                          </span>
+                        ) : (
+                          <>
+                            Send reset link
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center py-4">
+                      <div
+                        className="w-[56px] h-[56px] rounded-full flex items-center justify-center mx-auto mb-4"
+                        style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                      >
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 11l3 3L22 4" />
+                        </svg>
+                      </div>
+                      <h3 className="text-[16px] font-bold text-[#36383A] mb-2">Check your email</h3>
+                      <p className="text-[13px] text-[#666666] mb-4">
+                        If an account with <span className="font-semibold text-[#36383A]">{forgotEmail}</span> exists, we&apos;ve sent a password reset link. Check your inbox and spam folder.
+                      </p>
+                      <p className="text-[12px] text-[#999999]">
+                        The link expires in 1 hour.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="text-center mt-4">
                     <button
-                      onClick={() => setForgotPassword(false)}
+                      onClick={() => { setForgotPassword(false); setForgotSent(false); setError(null) }}
                       className="text-[14px] text-[#0FBCC0] font-semibold hover:underline"
                     >
                       Back to login

@@ -253,6 +253,64 @@ export async function sendWelcomeEmail(
   })
 }
 
+export async function sendPasswordResetEmail(
+  email: string,
+  resetUrl: string
+): Promise<boolean> {
+  return sendEmail({
+    to: email,
+    subject: 'Reset Your Password - XoXoSurveys',
+    html: `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Password - XoXoSurveys</title>
+</head>
+<body style="margin:0; padding:0; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background-color:#f4f5f7;">
+  <div style="max-width:600px; margin:0 auto; padding:20px;">
+    <div style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+      ${getEmailHeader('XoXoSurveys', 'Password Reset')}
+      <div style="padding:32px 40px;">
+        <h2 style="color:#36383A; font-size:20px; margin:0 0 16px; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">Reset your password</h2>
+        <p style="color:#4B4B4B; font-size:15px; line-height:1.6; margin:0 0 16px;">Hi there,</p>
+        <p style="color:#4B4B4B; font-size:15px; line-height:1.6; margin:0 0 16px;">We received a request to reset your password. Click the button below to choose a new password:</p>
+        <div style="text-align:center; margin:8px 0 24px;">
+          <a href="${resetUrl}" style="display:inline-block; background:linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%); color:#ffffff !important; text-decoration:none; padding:14px 32px; border-radius:8px; font-size:16px; font-weight:600; text-align:center; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">Reset My Password</a>
+        </div>
+        <p style="color:#4B4B4B; font-size:15px; line-height:1.6; margin:0 0 8px;">If the button doesn't work, copy and paste this link into your browser:</p>
+        <div style="background:#f9fafb; border:1px solid #e2eaf1; border-radius:8px; padding:12px 16px; word-break:break-all; font-size:13px; color:#4B4B4B; font-family:monospace;">${resetUrl}</div>
+        <p style="margin-top:16px; color:#999999; font-size:13px; line-height:1.5;">This reset link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.</p>
+        <div style="background:#FFFBEB; border:1px solid #F59E0B30; border-radius:8px; padding:12px 16px; margin-top:16px;">
+          <p style="margin:0; color:#92400E; font-size:13px; font-weight:500;">For security, this link can only be used once. After resetting, you will be logged out of all devices.</p>
+        </div>
+      </div>
+      ${getEmailFooter(`This email was sent to <strong>${email}</strong> because a password reset was requested on XoXoSurveys.`)}
+    </div>
+  </div>
+</body>
+</html>`,
+    text: `
+XoXoSurveys - Password Reset
+
+Hi there,
+
+We received a request to reset your password. Click the link below to choose a new password:
+
+${resetUrl}
+
+This reset link will expire in 1 hour.
+
+If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.
+
+For security, this link can only be used once. After resetting, you will be logged out of all devices.
+
+- XoXoSurveys Team
+    `.trim(),
+  })
+}
+
 export async function sendCashoutApprovedEmail(
   email: string,
   amount: number,
