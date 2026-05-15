@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   LayoutGrid,
   Loader2,
+  Star,
 } from 'lucide-react'
 
 interface SettingsState {
@@ -88,6 +89,12 @@ export function AdminSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Featured Offer state (reads from RevToo SurveyWall)
+  const [featuredOfferEnabled, setFeaturedOfferEnabled] = useState(false)
+  const [featuredOfferLoading, setFeaturedOfferLoading] = useState(true)
+  const [featuredOfferSaving, setFeaturedOfferSaving] = useState(false)
+  const [revtooWallId, setRevtooWallId] = useState<string | null>(null)
+
   const fetchSettings = useCallback(async () => {
     try {
       setLoading(true)
@@ -105,9 +112,54 @@ export function AdminSettings() {
     }
   }, [])
 
+  // Fetch Featured Offer status from RevToo SurveyWall
+  const fetchFeaturedOfferStatus = useCallback(async () => {
+    try {
+      setFeaturedOfferLoading(true)
+      const res = await fetch('/api/admin/survey-walls')
+      if (res.ok) {
+        const data = await res.json()
+        const walls = Array.isArray(data) ? data : []
+        const revtooWall = walls.find((w: { provider: string; isActive: boolean; id: string }) => w.provider === 'revtoo')
+        if (revtooWall) {
+          setFeaturedOfferEnabled(revtooWall.isActive)
+          setRevtooWallId(revtooWall.id)
+        } else {
+          // No RevToo wall exists yet
+          setFeaturedOfferEnabled(false)
+          setRevtooWallId(null)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch featured offer status:', err)
+    } finally {
+      setFeaturedOfferLoading(false)
+    }
+  }, [])
+
+  // Toggle Featured Offer on/off
+  const toggleFeaturedOffer = async () => {
+    if (!revtooWallId) return
+    try {
+      setFeaturedOfferSaving(true)
+      const res = await fetch(`/api/admin/survey-walls/${revtooWallId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !featuredOfferEnabled }),
+      })
+      if (!res.ok) throw new Error('Failed to toggle featured offer')
+      setFeaturedOfferEnabled(!featuredOfferEnabled)
+    } catch (err) {
+      console.error('Toggle featured offer error:', err)
+    } finally {
+      setFeaturedOfferSaving(false)
+    }
+  }
+
   useEffect(() => {
     fetchSettings()
-  }, [fetchSettings])
+    fetchFeaturedOfferStatus()
+  }, [fetchSettings, fetchFeaturedOfferStatus])
 
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
@@ -202,8 +254,33 @@ export function AdminSettings() {
                 <p className="text-[11px] text-[#999999] mt-1">Percentage of referral earnings that the referrer receives</p>
               </div>
 
-              {/* Survey Provider Management Note */}
+              {/* Featured Offer Toggle */}
               <div className="border-t border-[#E5E7EB] pt-5">
+                <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
+                  <div>
+                    <p className="text-[13px] font-medium text-[#065F46] flex items-center gap-2">
+                      <Star size={16} className="text-[#0FBCC0]" />
+                      Featured Offer
+                    </p>
+                    <p className="text-[11px] text-[#047857]">
+                      {featuredOfferLoading
+                        ? 'Loading...'
+                        : revtooWallId
+                          ? (featuredOfferEnabled ? 'Featured offer is visible to users' : 'Featured offer is hidden from users')
+                          : 'No RevToo wall configured — add one in Survey Walls'
+                      }
+                    </p>
+                  </div>
+                  <Switch
+                    checked={featuredOfferEnabled}
+                    onCheckedChange={toggleFeaturedOffer}
+                    disabled={featuredOfferLoading || featuredOfferSaving || !revtooWallId}
+                  />
+                </div>
+              </div>
+
+              {/* Survey Provider Management Note */}
+              <div className="pt-3">
                 <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
                   <div>
                     <p className="text-[13px] font-medium text-[#065F46] flex items-center gap-2">
@@ -215,7 +292,7 @@ export function AdminSettings() {
                       </svg>
                       Survey Provider Management
                     </p>
-                    <p className="text-[11px] text-[#047857]">Enable/disable providers, change API keys & URLs from the Survey Walls page</p>
+                    <p className="text-[11px] text-[#047857]">Manage API keys, URLs & advanced settings from the Survey Walls page</p>
                   </div>
                 </div>
               </div>
