@@ -78,7 +78,10 @@ export function AuthPage() {
       if (data.sessionToken) {
         localStorage.setItem('sessionToken', data.sessionToken)
       }
-      localStorage.setItem('userId', data.user.id)
+      localStorage.setItem('userId', data.user.id) // cuid for API lookups
+      if (data.user.userId) {
+        localStorage.setItem('numericUserId', String(data.user.userId))
+      }
     } catch (err) {
       setError('Network error. Please check your connection and try again.')
     } finally {
@@ -126,7 +129,10 @@ export function AuthPage() {
       if (data.sessionToken) {
         localStorage.setItem('sessionToken', data.sessionToken)
       }
-      localStorage.setItem('userId', data.user.id)
+      localStorage.setItem('userId', data.user.id) // cuid for API lookups
+      if (data.user.userId) {
+        localStorage.setItem('numericUserId', String(data.user.userId))
+      }
     } catch (err) {
       setError('Network error. Please check your connection and try again.')
     } finally {
