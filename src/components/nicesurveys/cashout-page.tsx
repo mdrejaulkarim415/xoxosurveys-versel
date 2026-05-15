@@ -1,7 +1,16 @@
 'use client'
 
 import { useApp } from '@/app/page'
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+
+interface CashoutRecord {
+  id: string
+  giftCardType: string
+  amount: number
+  status: string
+  createdAt: string
+  processedAt: string | null
+}
 
 const giftCards = [
   {
@@ -105,6 +114,86 @@ const giftCards = [
   },
 ]
 
+// Gift card display names for cashout history
+const giftCardDisplayNames: Record<string, string> = {
+  'binance': 'Binance Pay',
+  'litecoin': 'Litecoin (LTC)',
+  'paypal': 'PayPal Transfer',
+  'amazon': 'Amazon Gift Card',
+  'google-play': 'Google Play',
+}
+
+// Status config for cashout history
+const statusConfig: Record<string, { label: string; color: string; bgColor: string; icon: JSX.Element }> = {
+  pending: {
+    label: 'Pending',
+    color: '#D97706',
+    bgColor: '#FFFBEB',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    ),
+  },
+  approved: {
+    label: 'Approved',
+    color: '#059669',
+    bgColor: '#ECFDF5',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+    ),
+  },
+  processed: {
+    label: 'Processed',
+    color: '#059669',
+    bgColor: '#ECFDF5',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    ),
+  },
+  rejected: {
+    label: 'Declined',
+    color: '#DC2626',
+    bgColor: '#FEF2F2',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="15" y1="9" x2="9" y2="15" />
+        <line x1="9" y1="9" x2="15" y2="15" />
+      </svg>
+    ),
+  },
+  flagged: {
+    label: 'Under Review',
+    color: '#EA580C',
+    bgColor: '#FFF7ED',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+    ),
+  },
+  chargeback: {
+    label: 'Chargeback',
+    color: '#DC2626',
+    bgColor: '#FEF2F2',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="1 4 1 10 7 10" />
+        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+      </svg>
+    ),
+  },
+}
+
 export function CashoutPage() {
   const { state, setState } = useApp()
   const [selectedCard, setSelectedCard] = useState<string | null>(null)
@@ -118,6 +207,39 @@ export function CashoutPage() {
 
   const [cashoutLoading, setCashoutLoading] = useState(false)
   const [cashoutError, setCashoutError] = useState<string | null>(null)
+
+  // Cashout history state
+  const [cashoutHistory, setCashoutHistory] = useState<CashoutRecord[]>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+
+  // Fetch cashout history
+  const fetchCashoutHistory = useCallback(async () => {
+    try {
+      const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
+      if (!storedUserId) return
+
+      const res = await fetch(`/api/cashout/history?userId=${storedUserId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setCashoutHistory(data.cashouts || [])
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchCashoutHistory()
+  }, [fetchCashoutHistory])
+
+  // Refresh history after successful cashout
+  useEffect(() => {
+    if (cashoutSuccess) {
+      fetchCashoutHistory()
+    }
+  }, [cashoutSuccess, fetchCashoutHistory])
 
   // Validate payment detail based on card type
   const isPaymentDetailValid = () => {
@@ -216,6 +338,18 @@ export function CashoutPage() {
     } finally {
       setCashoutLoading(false)
     }
+  }
+
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   }
 
   if (cashoutSuccess) {
@@ -336,6 +470,101 @@ export function CashoutPage() {
                 <p className="text-[14px] text-[#4B4B4B] font-medium">Show all gift cards</p>
                 <p className="text-[12px] text-[#999999]">+{giftCards.length - 3} available</p>
               </button>
+            )}
+          </div>
+
+          {/* ===== CASHOUT HISTORY SECTION ===== */}
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-3">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              <h2 className="text-[16px] font-bold text-[#36383A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
+                Cashout History
+              </h2>
+            </div>
+
+            {/* Loading State */}
+            {historyLoading && (
+              <div className="bg-white rounded-[12px] border border-[#E2EAF1] p-6 animate-pulse" style={{ boxShadow: '0px 4px 20px 0px rgba(191,197,209,0.20)' }}>
+                <div className="space-y-3">
+                  {[1, 2].map(i => (
+                    <div key={i} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-[40px] h-[40px] rounded-full bg-[#F0F2F5]" />
+                        <div>
+                          <div className="h-4 bg-[#F0F2F5] rounded w-24 mb-2" />
+                          <div className="h-3 bg-[#F0F2F5] rounded w-32" />
+                        </div>
+                      </div>
+                      <div className="h-6 bg-[#F0F2F5] rounded-full w-20" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Cashout History List */}
+            {!historyLoading && cashoutHistory.length > 0 && (
+              <div className="bg-white rounded-[12px] border border-[#E2EAF1] overflow-hidden" style={{ boxShadow: '0px 4px 20px 0px rgba(191,197,209,0.20)' }}>
+                <div className="divide-y divide-[#F0F2F5]">
+                  {cashoutHistory.map((record) => {
+                    const status = statusConfig[record.status] || statusConfig.pending
+                    return (
+                      <div key={record.id} className="p-4 flex items-center gap-3 hover:bg-[#FAFBFC] transition-colors">
+                        {/* Gift Card Type Icon */}
+                        <div
+                          className="w-[40px] h-[40px] rounded-full flex items-center justify-center flex-shrink-0 text-white text-[14px] font-bold"
+                          style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                        >
+                          $
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[14px] font-semibold text-[#36383A] truncate">
+                              {giftCardDisplayNames[record.giftCardType] || record.giftCardType}
+                            </p>
+                            <p className="text-[14px] font-bold text-[#36383A] flex-shrink-0">
+                              ${record.amount.toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <p className="text-[12px] text-[#999999]">
+                              {formatDate(record.createdAt)}
+                            </p>
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-0.5 flex-shrink-0"
+                              style={{ color: status.color, background: status.bgColor }}
+                            >
+                              {status.icon}
+                              {status.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!historyLoading && cashoutHistory.length === 0 && (
+              <div className="bg-white rounded-[12px] border border-[#E2EAF1] p-8 text-center" style={{ boxShadow: '0px 4px 20px 0px rgba(191,197,209,0.20)' }}>
+                <div
+                  className="w-[56px] h-[56px] rounded-full flex items-center justify-center mx-auto mb-3"
+                  style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                </div>
+                <p className="text-[14px] text-[#999999]">No cashout history yet. Request your first cashout above!</p>
+              </div>
             )}
           </div>
         </>
