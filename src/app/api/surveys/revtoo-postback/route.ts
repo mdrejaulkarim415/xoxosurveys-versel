@@ -5,13 +5,12 @@ import { db } from '@/lib/db'
  * Revtoo Postback Endpoint
  *
  * Revtoo calls this endpoint when a user completes a survey.
- * Supports both snake_case and camelCase parameter names from RevToo:
- * - subId / sub_id / user_id / userId: The user ID we passed in the redirect URL
- * - offer_id / offerId: The offer ID
+ * Typical Revtoo postback parameters:
+ * - user_id: The user ID we passed in the redirect URL
+ * - offer_id: The offer ID (56443 for Revtoo Surveys)
  * - payout: The payout amount
- * - reward / reward_value: The reward amount given to user
- * - transId / tid / transaction_id: Unique transaction ID from RevToo
- * - status: 1/completed/approved = credit, anything else = ignore
+ * - reward: The reward amount given to user
+ * - transaction_id: Unique transaction ID from Revtoo
  * - ip: User's IP address
  * - signature: Security signature (if configured)
  */
@@ -94,8 +93,38 @@ async function handlePostback(request: NextRequest) {
       }
     }
 
-    // Calculate reward amount - use reward if provided, otherwise use payout
-    const earnedAmount = finalReward > 0 ? finalReward : finalPayout > 0 ? finalPayout * 0.7 : 0.05
+    // Calculate reward amount - use wall-specific revenue percent if available, otherwise global default, then fallback
+    let userPercent = 70 // Default 70% to user, 30% to admin
+
+    // Try to get global default from admin settings
+    try {
+      const revSetting = await db.adminSettings.findUnique({ where: { key: 'defaultUserRevenuePercent' } })
+      if (revSetting && Number(revSetting.value) > 0) {
+        userPercent = Number(revSetting.value)
+      }
+    } catch { /* ignore */ }
+
+    // Try to get wall-specific override from the survey wall config
+    // The offer_id can help us identify which wall this came from
+    if (finalOfferId) {
+      try {
+        const walls = await db.surveyWall.findMany({
+          where: { provider: 'revtoo', isActive: true },
+          select: { id: true, config: true },
+        })
+        for (const wall of walls) {
+          try {
+            const config = JSON.parse(wall.config || '{}')
+            if (config.userRevenuePercent && Number(config.userRevenuePercent) > 0) {
+              userPercent = Number(config.userRevenuePercent)
+              break // Use first matching RevToo wall's config
+            }
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    }
+
+    const earnedAmount = finalReward > 0 ? finalReward : finalPayout > 0 ? finalPayout * (userPercent / 100) : 0.05
 
     // Verify offer is our target offer (56443)
     if (finalOfferId && finalOfferId !== '56443') {

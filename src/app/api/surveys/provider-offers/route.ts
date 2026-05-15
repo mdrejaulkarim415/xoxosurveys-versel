@@ -439,8 +439,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User is banned' }, { status: 403 })
     }
 
-    // Get all active survey walls
-    const walls = await db.surveyWall.findMany({
+    // Get all active survey walls that have showProviderCard enabled
+    // (only providers with showProviderCard=true will appear in Individual Surveys)
+    const allWalls = await db.surveyWall.findMany({
       where: {
         isActive: true,
         minFraudScore: { gte: user.fraudScore },
@@ -455,6 +456,17 @@ export async function GET(request: NextRequest) {
         endpointUrl: true,
         config: true,
       },
+    })
+
+    // Filter walls: only show in Individual Surveys if showProviderCard is true
+    const walls = allWalls.filter(wall => {
+      try {
+        const config = JSON.parse(wall.config || '{}')
+        // Default to true if showProviderCard is not set (backward compatible)
+        return config.showProviderCard !== false
+      } catch {
+        return true // Default: show
+      }
     })
 
     // Get global revenue share setting

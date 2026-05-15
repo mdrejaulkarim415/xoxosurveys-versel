@@ -35,6 +35,9 @@ import {
   DollarSign,
   BarChart3,
   ExternalLink,
+  Eye,
+  EyeOff,
+  Save,
 } from 'lucide-react'
 
 interface SurveyWall {
@@ -57,6 +60,7 @@ interface SurveyWall {
   completions: number
   revenue: number
   userRevenuePercent: number
+  showProviderCard: boolean
   createdAt: string
 }
 
@@ -76,6 +80,7 @@ const emptyWall: Omit<SurveyWall, 'id' | 'surveysAvailable' | 'completions' | 'r
   minFraudScore: 50,
   cooldownMinutes: 5,
   userRevenuePercent: 0, // 0 = use global default
+  showProviderCard: true, // Show in Individual Surveys by default
 }
 
 export function AdminSurveyWalls() {
@@ -87,6 +92,8 @@ export function AdminSurveyWalls() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'fail' | null>>({})
+  const [savingCard, setSavingCard] = useState<string | null>(null)
+  const [cardSaved, setCardSaved] = useState<string | null>(null)
 
   const fetchWalls = useCallback(async () => {
     try {
@@ -130,6 +137,7 @@ export function AdminSurveyWalls() {
       minFraudScore: wall.minFraudScore,
       cooldownMinutes: wall.cooldownMinutes,
       userRevenuePercent: wall.userRevenuePercent || 0,
+      showProviderCard: wall.showProviderCard ?? true,
     })
     setEditWall(wall)
     setShowForm(true)
@@ -162,18 +170,32 @@ export function AdminSurveyWalls() {
     }
   }
 
-  const toggleActive = async (wall: SurveyWall) => {
+  // Quick save for card-level toggles (isActive, showProviderCard, userRevenuePercent)
+  const quickSaveCard = async (wall: SurveyWall, updates: Partial<SurveyWall>) => {
     try {
+      setSavingCard(wall.id)
       const res = await fetch(`/api/admin/survey-walls/${wall.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !wall.isActive }),
+        body: JSON.stringify(updates),
       })
-      if (!res.ok) throw new Error('Failed to toggle wall')
+      if (!res.ok) throw new Error('Failed to save')
+      setCardSaved(wall.id)
+      setTimeout(() => setCardSaved(null), 2000)
       await fetchWalls()
     } catch (err) {
-      console.error('Toggle wall error:', err)
+      console.error('Quick save error:', err)
+    } finally {
+      setSavingCard(null)
     }
+  }
+
+  const toggleActive = async (wall: SurveyWall) => {
+    await quickSaveCard(wall, { isActive: !wall.isActive })
+  }
+
+  const toggleShowProviderCard = async (wall: SurveyWall) => {
+    await quickSaveCard(wall, { showProviderCard: !wall.showProviderCard })
   }
 
   const deleteWall = async (id: string) => {
@@ -239,7 +261,7 @@ export function AdminSurveyWalls() {
           <CardContent className="py-16 text-center">
             <LayoutGrid size={40} className="mx-auto text-[#D1D5DB] mb-3" />
             <p className="text-[14px] text-[#999999]">No survey walls configured</p>
-            <p className="text-[12px] text-[#CCCCCC] mt-1">Click "Add Wall" to create your first survey wall provider</p>
+            <p className="text-[12px] text-[#CCCCCC] mt-1">Click &quot;Add Wall&quot; to create your first survey wall provider</p>
           </CardContent>
         </Card>
       ) : (
@@ -299,6 +321,76 @@ export function AdminSurveyWalls() {
                   <span className="text-[#999999]">Fraud threshold:</span>
                   <span className="font-medium text-[#1A1A1A]">{wall.minFraudScore}/100</span>
                 </div>
+
+                {/* ===== NEW: Show Provider Card Toggle ===== */}
+                <div className="flex items-center justify-between p-2.5 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
+                  <div className="flex items-center gap-2">
+                    {wall.showProviderCard ? (
+                      <Eye size={14} className="text-[#0FBCC0]" />
+                    ) : (
+                      <EyeOff size={14} className="text-[#999999]" />
+                    )}
+                    <div>
+                      <p className="text-[12px] font-medium text-[#065F46]">Individual Surveys</p>
+                      <p className="text-[10px] text-[#047857]">
+                        {wall.showProviderCard
+                          ? 'Surveys appear in Individual Surveys'
+                          : 'Hidden from Individual Surveys'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={wall.showProviderCard ?? true}
+                    onCheckedChange={() => toggleShowProviderCard(wall)}
+                    disabled={savingCard === wall.id}
+                  />
+                </div>
+
+                {/* Admin Revenue Percent (per wall) */}
+                <div className="flex items-center justify-between p-2.5 bg-[#FDF4FF] rounded-[8px] border border-[#A855F7]/20">
+                  <div className="flex items-center gap-2">
+                    <DollarSign size={14} className="text-[#A855F7]" />
+                    <div>
+                      <p className="text-[12px] font-medium text-[#581C87]">Admin Revenue %</p>
+                      <p className="text-[10px] text-[#7C3AED]">
+                        {wall.userRevenuePercent > 0
+                          ? `User: ${wall.userRevenuePercent}% / Admin: ${100 - wall.userRevenuePercent}%`
+                          : 'Using global default'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={95}
+                      value={wall.userRevenuePercent || 0}
+                      onChange={(e) => {
+                        const val = Math.min(95, Math.max(0, Number(e.target.value)))
+                        // Optimistic update
+                        setWalls(prev => prev.map(w =>
+                          w.id === wall.id ? { ...w, userRevenuePercent: val } : w
+                        ))
+                      }}
+                      onBlur={(e) => {
+                        const val = Math.min(95, Math.max(0, Number(e.target.value)))
+                        quickSaveCard(wall, { userRevenuePercent: val })
+                      }}
+                      className="h-7 text-[12px] w-[60px] text-center p-1"
+                    />
+                    <span className="text-[11px] text-[#999999]">%</span>
+                  </div>
+                </div>
+
+                {/* Saved indicator */}
+                {cardSaved === wall.id && (
+                  <div className="flex items-center gap-1 text-[11px] text-[#10B981]">
+                    <CheckCircle size={12} />
+                    <span>Saved!</span>
+                  </div>
+                )}
 
                 {/* API Status */}
                 <div className="flex items-center gap-2">
@@ -504,6 +596,23 @@ export function AdminSurveyWalls() {
               </div>
             </div>
 
+            {/* ===== NEW: Show in Individual Surveys Toggle ===== */}
+            <div className="flex items-center justify-between p-3 bg-[#F0FDFB] rounded-[8px] border border-[#0FBCC0]/20">
+              <div>
+                <p className="text-[13px] font-medium text-[#065F46]">Show in Individual Surveys</p>
+                <p className="text-[11px] text-[#047857]">
+                  {formData.showProviderCard
+                    ? 'Surveys from this provider will appear in Individual Surveys section'
+                    : 'Surveys from this provider will be hidden from Individual Surveys'
+                  }
+                </p>
+              </div>
+              <Switch
+                checked={formData.showProviderCard}
+                onCheckedChange={(v) => setFormData((p) => ({ ...p, showProviderCard: v }))}
+              />
+            </div>
+
             {/* Anti-Fraud Settings */}
             <div className="space-y-3">
               <h4 className="text-[13px] font-bold text-[#1A1A1A] flex items-center gap-2">
@@ -567,7 +676,7 @@ export function AdminSurveyWalls() {
                 onClick={handleSave}
                 disabled={!formData.name || saving}
               >
-                {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : null}
+                {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Save size={14} className="mr-1" />}
                 {editWall ? 'Save Changes' : 'Create Wall'}
               </Button>
               <Button variant="outline" onClick={() => setShowForm(false)}>

@@ -19,6 +19,7 @@ export async function GET() {
       return {
         ...wall,
         userRevenuePercent: configParsed.userRevenuePercent || 0,
+        showProviderCard: configParsed.showProviderCard !== undefined ? configParsed.showProviderCard : true,
         surveysAvailable: wall._count.surveys,
         completions: wall.surveys.reduce((sum, s) => sum + s.currentCompletions, 0),
         revenue: wall.surveys.reduce((sum, s) => sum + s.currentCompletions * s.reward, 0),
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
       name, provider, apiKey, apiSecret, endpointUrl, isActive,
       priority, minPayout, maxPayout, description, config,
       requireVerification, blockVpn, blockProxy, minFraudScore, cooldownMinutes,
-      userRevenuePercent,
+      userRevenuePercent, showProviderCard,
     } = body
 
     if (!name || !provider) {
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
         minPayout: minPayout ?? 0.01,
         maxPayout: maxPayout ?? 5.0,
         description: description || null,
-        config: config ? JSON.stringify(config) : JSON.stringify({ userRevenuePercent: userRevenuePercent || 0 }),
+        config: config ? JSON.stringify(config) : JSON.stringify({ userRevenuePercent: userRevenuePercent || 0, showProviderCard: showProviderCard !== undefined ? showProviderCard : true }),
         requireVerification: requireVerification ?? 0,
         blockVpn: blockVpn ?? true,
         blockProxy: blockProxy ?? true,
