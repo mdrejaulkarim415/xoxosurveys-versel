@@ -117,9 +117,6 @@ export function SurveysPage() {
   const [surveys, setSurveys] = useState<SurveyListing[]>([])
   const [surveysLoading, setSurveysLoading] = useState(true)
 
-  // Admin settings: provider section visibility
-  const [showProvidersSection, setShowProvidersSection] = useState(true)
-
   // Survey started state (tracks if user opened any survey link)
   const [surveyOpened, setSurveyOpened] = useState(false)
   const [lastBalance, setLastBalance] = useState(state.user.balance)
@@ -167,24 +164,6 @@ export function SurveysPage() {
       fetchWalls()
     }
   }, [state.user.userId])
-
-  // Fetch admin settings (provider section visibility)
-  useEffect(() => {
-    async function fetchSettings() {
-      try {
-        const res = await fetch('/api/admin/settings')
-        if (res.ok) {
-          const data = await res.json()
-          if (data.showProvidersSection !== undefined) {
-            setShowProvidersSection(data.showProvidersSection !== 'false')
-          }
-        }
-      } catch {
-        // Silently fail - default to showing providers
-      }
-    }
-    fetchSettings()
-  }, [])
 
   // Fetch individual surveys from ALL providers (auto-synced)
   useEffect(() => {
@@ -441,7 +420,7 @@ export function SurveysPage() {
       )}
 
       {/* ===== SECTION 2: SURVEY PROVIDERS / WALLS ===== */}
-      {showProvidersSection && (
+      {/* Per-wall showProviderCard filtering is done server-side in /api/surveys/walls */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-3">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -555,7 +534,6 @@ export function SurveysPage() {
           </div>
         )}
       </div>
-      )}
 
       {/* ===== SECTION 3: INDIVIDUAL SURVEY LISTINGS ===== */}
       <div className="mb-8">
