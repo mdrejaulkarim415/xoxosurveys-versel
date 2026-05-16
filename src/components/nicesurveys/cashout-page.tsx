@@ -319,11 +319,23 @@ export function CashoutPage() {
         return
       }
 
-      // Update user balance in state
+      // Update user balance in state AND localStorage cache
+      const newBalance = data.newBalance ?? state.user.balance - amountNum
       setState(prev => ({
         ...prev,
-        user: { ...prev.user, balance: data.newBalance ?? prev.user.balance - amountNum },
+        user: { ...prev.user, balance: newBalance },
       }))
+
+      // Update localStorage userData cache so reload doesn't revert the balance
+      try {
+        const cachedData = localStorage.getItem('userData')
+        const parsedData = cachedData ? JSON.parse(cachedData) : {}
+        parsedData.balance = newBalance
+        parsedData.totalEarned = parsedData.totalEarned // keep as-is
+        localStorage.setItem('userData', JSON.stringify(parsedData))
+      } catch {
+        // Ignore localStorage errors
+      }
 
       setCashoutSuccess(true)
       setTimeout(() => {
@@ -603,7 +615,7 @@ export function CashoutPage() {
               Amount (${selectedCardData?.min}-${selectedCardData?.max})
             </label>
             <div className="relative mb-4">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#999999] text-[14px] font-medium pointer-events-none">$</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#999999] text-[14px]">$</span>
               <input
                 type="number"
                 value={amount}
@@ -611,8 +623,7 @@ export function CashoutPage() {
                 placeholder={`Enter amount (${selectedCardData?.min}-${selectedCardData?.max})`}
                 min={selectedCardData?.min}
                 max={Math.min(selectedCardData?.max || 50, state.user.balance)}
-                className="ns-input"
-                style={{ paddingLeft: '32px' }}
+                className="ns-input pl-7"
               />
             </div>
 

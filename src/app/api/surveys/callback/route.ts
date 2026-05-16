@@ -3,6 +3,15 @@ import { db } from '@/lib/db'
 import { antiFraudEngine } from '@/lib/anti-fraud'
 
 /**
+ * Check if an IP is private/local (load balancer, CDN, etc.)
+ * These should NOT be used for fraud detection
+ */
+function isPrivateOrLocalIp(ip: string): boolean {
+  if (!ip) return true
+  return /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.|169\.254\.|::1|fc|fe80)/.test(ip)
+}
+
+/**
  * Generic Survey Callback / Postback Endpoint
  *
  * Handles postbacks from ANY survey provider (Revtoo, CPX Research, Bitlabs, Inbrain, custom, etc.)
@@ -152,7 +161,11 @@ async function handleExternalPostback(
   const finalReward = parseFloat(reward || '0')
 
   // Get the request IP (for fraud checking the postback itself)
-  const requestIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || ip || 'unknown'
+  // x-forwarded-for may contain multiple IPs; find the first public (non-private) one
+  const forwardedFor = request.headers.get('x-forwarded-for')
+  const requestIp = forwardedFor
+    ? forwardedFor.split(',').map(ip => ip.trim()).find(ip => ip && !isPrivateOrLocalIp(ip)) || forwardedFor.split(',')[0]?.trim()
+    : ip || 'unknown'
 
   // Find user by numeric userId
   const user = await db.user.findUnique({

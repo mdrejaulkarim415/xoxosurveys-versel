@@ -131,12 +131,19 @@ const TOR_EXIT_RANGES = [
   { start: '213.61.215.0', end: '213.61.215.255' },
 ]
 
-// Known VPN/Proxy provider IP patterns (simplified for demo)
-const VPN_PROXY_PATTERNS = [
-  /^10\./,           // Private (sometimes VPN)
-  /^172\.(1[6-9]|2\d|3[01])\./, // Private (sometimes VPN)
-  /^192\.168\./,     // Private (sometimes VPN)
+// Private/Reserved IP ranges (RFC 1918) - these are NOT VPN/proxy indicators
+// They are normal for load balancers, CDNs (Vercel/Cloudflare), and internal networks
+const PRIVATE_IP_PATTERNS = [
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^127\./,
+  /^0\./,
+  /^169\.254\./,  // Link-local
   /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT
+  /^::1$/,         // IPv6 loopback
+  /^fc/,           // IPv6 unique local
+  /^fe80/,         // IPv6 link-local
 ]
 
 // ==================== Helper Functions ====================
@@ -158,7 +165,7 @@ function isIpInRange(ip: string, start: string, end: string): boolean {
 }
 
 function isPrivateIp(ip: string): boolean {
-  return VPN_PROXY_PATTERNS.some(pattern => pattern.test(ip))
+  return PRIVATE_IP_PATTERNS.some(pattern => pattern.test(ip))
 }
 
 // Simple hash for fingerprint generation
@@ -207,10 +214,11 @@ class AntiFraudEngine {
       }
     }
 
-    // Check if private/reserved IP
+    // Check if private/reserved IP - these are from load balancers/CDNs, NOT proxies
+    // Skip fraud checks for private IPs (Vercel/Cloudflare internal routing)
     if (isPrivateIp(ip)) {
-      isProxy = true
-      riskScore += 20
+      // Don't flag as VPN/proxy - just note it's internal and return low risk
+      return { isVpn: false, isProxy: false, isTor: false, country, city, riskScore: 0 }
     }
 
     // Check if this IP has been seen before with VPN/proxy flags

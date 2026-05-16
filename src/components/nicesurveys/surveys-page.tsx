@@ -23,15 +23,16 @@ interface SurveyListing {
   timeMinutes: number
   reward: number
   rating: number
-  reviews?: number
-  available?: number
+  reviews: number
+  available: number
   category: string | null
   country: string | null
-  language?: string | null
-  provider: string
-  providerName: string
-  wallId?: string
-  isDbSurvey?: boolean
+  language: string | null
+  wall: {
+    id: string
+    name: string
+    provider: string
+  }
   redirectUrl: string
 }
 
@@ -105,11 +106,6 @@ export function SurveysPage() {
     reward: string
   } | null>(null)
   const [revtooUrl, setRevtooUrl] = useState<string | null>(null)
-  const [revtooCustom, setRevtooCustom] = useState<{
-    badge: string
-    time: string
-    payout: string
-  }>({ badge: 'Featured', time: '5-20 Min', payout: '' })
 
   // Walls and surveys state
   const [walls, setWalls] = useState<SurveyWall[]>([])
@@ -130,9 +126,6 @@ export function SurveysPage() {
           const data = await res.json()
           setRevtooOffer(data.offer)
           setRevtooUrl(data.redirectUrl)
-          if (data.customization) {
-            setRevtooCustom(data.customization)
-          }
         }
       } catch {
         // Silently fail
@@ -165,11 +158,11 @@ export function SurveysPage() {
     }
   }, [state.user.userId])
 
-  // Fetch individual surveys from ALL providers (auto-synced)
+  // Fetch available surveys on mount
   useEffect(() => {
     async function fetchSurveys() {
       try {
-        const res = await fetch(`/api/surveys/provider-offers?user_id=${state.user.userId}`)
+        const res = await fetch(`/api/surveys/available?user_id=${state.user.userId}`)
         if (res.ok) {
           const data = await res.json()
           setSurveys(Array.isArray(data) ? data : [])
@@ -208,6 +201,18 @@ export function SurveysPage() {
           }))
           setLastBalance(newBalance)
           setSurveyOpened(false) // Stop polling after reward detected
+
+          // Also update localStorage cache so reload doesn't revert
+          try {
+            const cachedData = localStorage.getItem('userData')
+            const parsedData = cachedData ? JSON.parse(cachedData) : {}
+            parsedData.balance = newBalance
+            parsedData.totalEarned = data.totalEarned
+            parsedData.surveysCompleted = data.surveysCompleted
+            localStorage.setItem('userData', JSON.stringify(parsedData))
+          } catch {
+            // Ignore localStorage errors
+          }
         }
       }
     } catch {
@@ -319,7 +324,7 @@ export function SurveysPage() {
                     {revtooOffer.title}
                   </h2>
                   <span className="bg-white/20 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                    {revtooCustom.badge}
+                    Featured
                   </span>
                 </div>
                 <p className="text-[13px] text-white/80 mt-0.5">
@@ -344,7 +349,7 @@ export function SurveysPage() {
                     <circle cx="12" cy="12" r="10" />
                     <polyline points="12 6 12 12 16 14" />
                   </svg>
-                  <span className="text-[13px] text-[#555555]">{revtooCustom.time}</span>
+                  <span className="text-[13px] text-[#555555]">5-20 Min</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2">
@@ -352,7 +357,7 @@ export function SurveysPage() {
                     <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                   </svg>
                   <span className="text-[13px] text-[#10B981] font-bold">
-                    {revtooCustom.payout || (revtooOffer.payout ? `Up to $${parseFloat(revtooOffer.payout).toFixed(2)}` : 'Variable Reward')}
+                    {revtooOffer.payout ? `Up to $${parseFloat(revtooOffer.payout).toFixed(2)}` : 'Variable Reward'}
                   </span>
                 </div>
                 {revtooOffer.countries && revtooOffer.countries.length > 0 && (
@@ -420,7 +425,6 @@ export function SurveysPage() {
       )}
 
       {/* ===== SECTION 2: SURVEY PROVIDERS / WALLS ===== */}
-      {/* Per-wall showProviderCard filtering is done server-side in /api/surveys/walls */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-3">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0FBCC0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -585,7 +589,7 @@ export function SurveysPage() {
                   {/* Provider icon */}
                   <div
                     className="w-[40px] h-[40px] rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ background: getProviderGradient(survey.provider) }}
+                    style={{ background: getProviderGradient(survey.wall.provider) }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -642,17 +646,17 @@ export function SurveysPage() {
                       <span
                         className="inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5"
                         style={{
-                          background: survey.provider === 'revtoo' ? '#2DD9B620' :
-                            survey.provider === 'cpx-research' ? '#667eea20' :
-                            survey.provider === 'bitlabs' ? '#f093fb20' :
-                            survey.provider === 'inbrain' ? '#4facfe20' : '#a8edea20',
-                          color: survey.provider === 'revtoo' ? '#22B9CF' :
-                            survey.provider === 'cpx-research' ? '#667eea' :
-                            survey.provider === 'bitlabs' ? '#f5576c' :
-                            survey.provider === 'inbrain' ? '#4facfe' : '#6b7280',
+                          background: survey.wall.provider === 'revtoo' ? '#2DD9B620' :
+                            survey.wall.provider === 'cpx-research' ? '#667eea20' :
+                            survey.wall.provider === 'bitlabs' ? '#f093fb20' :
+                            survey.wall.provider === 'inbrain' ? '#4facfe20' : '#a8edea20',
+                          color: survey.wall.provider === 'revtoo' ? '#22B9CF' :
+                            survey.wall.provider === 'cpx-research' ? '#667eea' :
+                            survey.wall.provider === 'bitlabs' ? '#f5576c' :
+                            survey.wall.provider === 'inbrain' ? '#4facfe' : '#6b7280',
                         }}
                       >
-                        {survey.providerName}
+                        {survey.wall.name}
                       </span>
                     </div>
                   </div>
@@ -666,7 +670,7 @@ export function SurveysPage() {
                     className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white rounded-full px-4 py-1.5 transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
                   >
-                    Complete on {survey.providerName}
+                    Complete on {survey.wall.name}
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M9 18l6-6-6-6" />
                     </svg>

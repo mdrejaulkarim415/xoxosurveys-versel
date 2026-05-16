@@ -3,6 +3,15 @@ import { db } from '@/lib/db'
 import { antiFraudEngine } from '@/lib/anti-fraud'
 
 /**
+ * Check if an IP is private/local (load balancer, CDN, etc.)
+ * These should NOT be used for fraud detection
+ */
+function isPrivateOrLocalIp(ip: string): boolean {
+  if (!ip) return true
+  return /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.|169\.254\.|::1|fc|fe80)/.test(ip)
+}
+
+/**
  * Revtoo Postback Endpoint
  *
  * Revtoo calls this endpoint when a user completes a survey.
@@ -122,7 +131,12 @@ async function handlePostback(request: NextRequest) {
     }
 
     // Get the request IP (for fraud checking the postback itself)
-    const requestIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || finalIp || 'unknown'
+    // x-forwarded-for may contain multiple IPs; the first is the client, later ones are proxies
+    // For Vercel, the first IP is the real client IP
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    const requestIp = forwardedFor
+      ? forwardedFor.split(',').map(ip => ip.trim()).find(ip => ip && !isPrivateOrLocalIp(ip)) || forwardedFor.split(',')[0]?.trim()
+      : finalIp || 'unknown'
 
     // Find user by userId (numeric ID starting from 100)
     const user = await db.user.findUnique({
