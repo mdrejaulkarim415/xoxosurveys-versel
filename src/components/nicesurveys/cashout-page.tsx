@@ -326,17 +326,6 @@ export function CashoutPage() {
         user: { ...prev.user, balance: newBalance },
       }))
 
-      // Update localStorage userData cache so reload doesn't revert the balance
-      try {
-        const cachedData = localStorage.getItem('userData')
-        const parsedData = cachedData ? JSON.parse(cachedData) : {}
-        parsedData.balance = newBalance
-        parsedData.totalEarned = parsedData.totalEarned // keep as-is
-        localStorage.setItem('userData', JSON.stringify(parsedData))
-      } catch {
-        // Ignore localStorage errors
-      }
-
       setCashoutSuccess(true)
       setTimeout(() => {
         setCashoutSuccess(false)

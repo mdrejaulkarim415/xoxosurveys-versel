@@ -203,18 +203,6 @@ export function SurveysPage() {
           }))
           setLastBalance(newBalance)
           setSurveyOpened(false) // Stop polling after reward detected
-
-          // Also update localStorage cache so reload doesn't revert
-          try {
-            const cachedData = localStorage.getItem('userData')
-            const parsedData = cachedData ? JSON.parse(cachedData) : {}
-            parsedData.balance = newBalance
-            parsedData.totalEarned = data.totalEarned
-            parsedData.surveysCompleted = data.surveysCompleted
-            localStorage.setItem('userData', JSON.stringify(parsedData))
-          } catch {
-            // Ignore localStorage errors
-          }
         }
       }
     } catch {
