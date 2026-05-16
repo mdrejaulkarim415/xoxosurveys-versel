@@ -203,6 +203,15 @@ export default function Home() {
           ...prev,
           user: { ...prev.user, emailVerified: true },
         }))
+        // Also update localStorage cache so reload doesn't lose verification status
+        try {
+          const cachedData = localStorage.getItem('userData')
+          const parsedData = cachedData ? JSON.parse(cachedData) : {}
+          parsedData.emailVerified = true
+          localStorage.setItem('userData', JSON.stringify(parsedData))
+        } catch {
+          // Ignore localStorage errors
+        }
       }
 
       // Clean up URL
