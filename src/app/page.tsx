@@ -73,75 +73,51 @@ export default function Home() {
     return isNaN(num) ? 0 : num
   }
 
-  // Restore session from localStorage on page load
-  // Strategy: Show UI INSTANTLY with session identifiers only (email, role)
-  // Then fetch fresh data from server in background — NO userData caching in localStorage
+  // Restore session — check localStorage for session, then fetch data from server
+  // localStorage stores ONLY session identifiers (NOT user data like balance)
   useEffect(() => {
     const savedToken = localStorage.getItem('sessionToken')
     const savedUserId = localStorage.getItem('userId') // cuid
-    const savedNumericUserId = localStorage.getItem('numericUserId') // integer
     const savedEmail = localStorage.getItem('userEmail')
     const savedRole = localStorage.getItem('userRole')
 
     if (savedToken && savedUserId) {
-      // We have a saved session — show UI immediately with session identifiers only
       const role = savedRole || 'user'
       const isAdmin = role === 'admin' || savedEmail === 'admin@xoxosurveys.com'
-      const numericId = parseUserId(savedNumericUserId)
 
-      // Show UI INSTANTLY — no waiting for API
-      setState({
-        isLoggedIn: true,
-        currentPage: isAdmin ? 'admin' : 'surveys',
-        user: {
-          userId: numericId,
-          email: savedEmail || '',
-          role,
-          balance: 0, // Will be updated from server
-          surveysCompleted: 0,
-          surveyTarget: 25,
-          earningRate: 0.005,
-          language: 'English (en)',
-          inviteCode: '',
-          unclaimedRevenue: 0,
-          friendsInvited: 0,
-          totalEarned: 0,
-          emailVerified: isAdmin, // Admins are always verified
-        },
-      })
-      setHydrated(true)
-
-      // Fetch fresh data from server in background
-      const refreshFromServer = async () => {
+      // Fetch fresh data from server — show loading until data arrives
+      const fetchFromServer = async () => {
         try {
           const res = await fetch(`/api/user/balance?userId=${savedUserId}&_t=${Date.now()}`, {
             cache: 'no-store',
           })
+
           if (res.ok) {
             const data = await res.json()
             const freshRole = data.role || role
             const freshIsAdmin = freshRole === 'admin' || savedEmail === 'admin@xoxosurveys.com'
-            const freshNumericId = data.userId ?? numericId
 
             if (data.userId) localStorage.setItem('numericUserId', String(data.userId))
 
-            setState(prev => ({
-              ...prev,
-              currentPage: freshIsAdmin ? 'admin' : prev.currentPage,
+            setState({
+              isLoggedIn: true,
+              currentPage: freshIsAdmin ? 'admin' : 'surveys',
               user: {
-                ...prev.user,
-                userId: freshNumericId || prev.user.userId,
+                userId: data.userId ?? 0,
+                email: savedEmail || '',
                 role: freshRole,
-                balance: data.balance ?? prev.user.balance,
-                surveysCompleted: data.surveysCompleted ?? prev.user.surveysCompleted,
-                earningRate: data.earningRate ?? prev.user.earningRate,
-                inviteCode: data.inviteCode || prev.user.inviteCode,
-                unclaimedRevenue: data.unclaimedRevenue ?? prev.user.unclaimedRevenue,
-                friendsInvited: data.friendsInvited ?? prev.user.friendsInvited,
-                totalEarned: data.totalEarned ?? prev.user.totalEarned,
-                emailVerified: data.emailVerified ?? prev.user.emailVerified,
+                balance: data.balance ?? 0,
+                surveysCompleted: data.surveysCompleted ?? 0,
+                surveyTarget: 25,
+                earningRate: data.earningRate ?? 0.005,
+                language: 'English (en)',
+                inviteCode: data.inviteCode ?? '',
+                unclaimedRevenue: data.unclaimedRevenue ?? 0,
+                friendsInvited: data.friendsInvited ?? 0,
+                totalEarned: data.totalEarned ?? 0,
+                emailVerified: data.emailVerified ?? false,
               },
-            }))
+            })
           } else if (res.status === 404) {
             // User not found — session is invalid
             localStorage.removeItem('sessionToken')
@@ -160,14 +136,56 @@ export default function Home() {
                 friendsInvited: 0, totalEarned: 0, emailVerified: false,
               },
             }))
+          } else {
+            // API error — still log in with minimal session data, will retry later
+            setState({
+              isLoggedIn: true,
+              currentPage: isAdmin ? 'admin' : 'surveys',
+              user: {
+                userId: 0,
+                email: savedEmail || '',
+                role,
+                balance: 0,
+                surveysCompleted: 0,
+                surveyTarget: 25,
+                earningRate: 0.005,
+                language: 'English (en)',
+                inviteCode: '',
+                unclaimedRevenue: 0,
+                friendsInvited: 0,
+                totalEarned: 0,
+                emailVerified: false,
+              },
+            })
           }
-          // For 500 or other errors, keep the session — will retry on next refreshUser()
         } catch {
-          // Network error — keep the session, will retry on next refreshUser()
+          // Network error — still log in with minimal session data, will retry later
+          setState({
+            isLoggedIn: true,
+            currentPage: isAdmin ? 'admin' : 'surveys',
+            user: {
+              userId: 0,
+              email: savedEmail || '',
+              role,
+              balance: 0,
+              surveysCompleted: 0,
+              surveyTarget: 25,
+              earningRate: 0.005,
+              language: 'English (en)',
+              inviteCode: '',
+              unclaimedRevenue: 0,
+              friendsInvited: 0,
+              totalEarned: 0,
+              emailVerified: false,
+            },
+          })
         }
+        setHydrated(true)
       }
-      refreshFromServer()
+
+      fetchFromServer()
     } else {
+      // No saved session — show login page
       setHydrated(true)
     }
   }, [])
