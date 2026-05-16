@@ -183,7 +183,9 @@ export function SurveysPage() {
     if (!surveyOpened || !state.user.userId) return
 
     try {
-      const res = await fetch(`/api/user/balance?user_id=${state.user.userId}`)
+      const res = await fetch(`/api/user/balance?user_id=${state.user.userId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+      })
       if (res.ok) {
         const data = await res.json()
         const newBalance = data.balance

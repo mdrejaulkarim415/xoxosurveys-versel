@@ -119,7 +119,9 @@ export default function Home() {
         // Then try to refresh from API in background
         const refreshFromApi = async () => {
           try {
-            const res = await fetch(`/api/user/balance?userId=${savedUserId}`)
+            const res = await fetch(`/api/user/balance?userId=${savedUserId}&_t=${Date.now()}`, {
+              cache: 'no-store',
+            })
             if (res.ok) {
               const data = await res.json()
               const freshRole = data.role || savedRole || 'user'
@@ -212,6 +214,28 @@ export default function Home() {
         } catch {
           // Ignore localStorage errors
         }
+        // Force a fresh API refresh to ensure server-side emailVerified is picked up
+        setTimeout(() => {
+          const userId = localStorage.getItem('userId')
+          if (userId) {
+            fetch(`/api/user/balance?userId=${userId}&_t=${Date.now()}`, { cache: 'no-store' })
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (data) {
+                  localStorage.setItem('userData', JSON.stringify(data))
+                  setState(prev => ({
+                    ...prev,
+                    user: {
+                      ...prev.user,
+                      emailVerified: data.emailVerified ?? prev.user.emailVerified,
+                      balance: data.balance ?? prev.user.balance,
+                    },
+                  }))
+                }
+              })
+              .catch(() => {})
+          }
+        }, 2000)
       }
 
       // Clean up URL
@@ -306,7 +330,9 @@ export default function Home() {
     if (!userId) return
 
     try {
-      const res = await fetch(`/api/user/balance?userId=${userId}`)
+      const res = await fetch(`/api/user/balance?userId=${userId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+      })
       if (res.ok) {
         const data = await res.json()
         // Update cache

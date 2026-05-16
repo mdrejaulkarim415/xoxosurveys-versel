@@ -60,7 +60,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 })
       }
 
-      return NextResponse.json(user)
+      return NextResponse.json(user, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      })
     } catch (prismaError: any) {
       // If Prisma fails due to missing columns, fall back to raw SQL
       if (prismaError?.code === 'P2025' || prismaError?.message?.includes('column') || prismaError?.message?.includes('does not exist')) {
@@ -140,5 +146,11 @@ async function handleWithRawSql(userIdParam: string): Promise<NextResponse> {
     userId: Number(user.userId) || 0,
   }
 
-  return NextResponse.json(response)
+  return NextResponse.json(response, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
+  })
 }
