@@ -745,6 +745,336 @@ class AntiFraudEngine {
       },
     })
   }
+
+  // ==================== EARNING VELOCITY CHECK ====================
+  // Detect if a user is earning money suspiciously fast (auto-surveying / bot)
+  async checkEarningVelocity(userId: string): Promise<{
+    isSuspicious: boolean
+    earnedLast1h: number
+    earnedLast24h: number
+    completionsLast1h: number
+    completionsLast24h: number
+    severity: 'low' | 'medium' | 'high' | 'critical'
+  }> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+    // Check activity logs for survey completions
+    const completions1h = await db.activityLog.findMany({
+      where: {
+        userId,
+        action: { in: ['survey_complete', 'provider_postback', 'revtoo_survey_complete'] },
+        createdAt: { gte: oneHourAgo },
+      },
+    })
+
+    const completions24h = await db.activityLog.findMany({
+      where: {
+        userId,
+        action: { in: ['survey_complete', 'provider_postback', 'revtoo_survey_complete'] },
+        createdAt: { gte: twentyFourHoursAgo },
+      },
+    })
+
+    let earnedLast1h = 0
+    let earnedLast24h = 0
+
+    for (const log of completions1h) {
+      try {
+        const details = JSON.parse(log.details || '{}')
+        earnedLast1h += details.reward || details.earnedAmount || 0
+      } catch {}
+    }
+
+    for (const log of completions24h) {
+      try {
+        const details = JSON.parse(log.details || '{}')
+        earnedLast24h += details.reward || details.earnedAmount || 0
+      } catch {}
+    }
+
+    const completionsLast1h = completions1h.length
+    const completionsLast24h = completions24h.length
+
+    let isSuspicious = false
+    let severity: 'low' | 'medium' | 'high' | 'critical' = 'low'
+
+    // Critical: More than 20 completions or $10+ in 1 hour
+    if (completionsLast1h > 20 || earnedLast1h > 10) {
+      isSuspicious = true
+      severity = 'critical'
+    }
+    // High: More than 15 completions or $7+ in 1 hour
+    else if (completionsLast1h > 15 || earnedLast1h > 7) {
+      isSuspicious = true
+      severity = 'high'
+    }
+    // Medium: More than 50 completions or $20+ in 24 hours
+    else if (completionsLast24h > 50 || earnedLast24h > 20) {
+      isSuspicious = true
+      severity = 'medium'
+    }
+
+    return {
+      isSuspicious,
+      earnedLast1h,
+      earnedLast24h,
+      completionsLast1h,
+      completionsLast24h,
+      severity,
+    }
+  }
+
+  // ==================== BOT PATTERN DETECTION ====================
+  // Detect auto-surveying bots by analyzing completion timing patterns
+  async checkBotPattern(userId: string): Promise<{
+    isBot: boolean
+    confidence: number // 0-1
+    patterns: string[]
+  }> {
+    const patterns: string[] = []
+    let confidence = 0
+
+    // Get recent survey completion activity
+    const recentLogs = await db.activityLog.findMany({
+      where: {
+        userId,
+        action: { in: ['survey_complete', 'survey_start'] },
+        createdAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) }, // Last 2 hours
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    })
+
+    if (recentLogs.length < 3) {
+      return { isBot: false, confidence: 0, patterns: [] }
+    }
+
+    // Check for perfectly regular intervals (bots often have consistent timing)
+    const timestamps = recentLogs.map(l => l.createdAt.getTime())
+    const intervals: number[] = []
+    for (let i = 1; i < timestamps.length; i++) {
+      intervals.push(timestamps[i] - timestamps[i - 1])
+    }
+
+    if (intervals.length >= 3) {
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
+      const variance = intervals.reduce((sum, iv) => sum + Math.pow(iv - avgInterval, 2), 0) / intervals.length
+      const stdDev = Math.sqrt(variance)
+
+      // If standard deviation is very low compared to average, it's suspicious
+      const coefficientOfVariation = avgInterval > 0 ? stdDev / avgInterval : 0
+      if (coefficientOfVariation < 0.1 && intervals.length >= 4) {
+        // Very regular intervals - strong bot indicator
+        patterns.push('regular_intervals')
+        confidence += 0.5
+      } else if (coefficientOfVariation < 0.2 && intervals.length >= 5) {
+        patterns.push('semi_regular_intervals')
+        confidence += 0.25
+      }
+
+      // Check for exact same interval repeated
+      const uniqueIntervals = new Set(intervals.map(iv => Math.round(iv / 1000)))
+      if (uniqueIntervals.size <= 2 && intervals.length >= 5) {
+        patterns.push('identical_intervals')
+        confidence += 0.4
+      }
+    }
+
+    // Check for identical time gaps between start and complete (always same duration)
+    const startCompletePairs: Record<number, number> = {}
+    for (let i = 0; i < recentLogs.length - 1; i++) {
+      if (recentLogs[i].action === 'survey_start' && recentLogs[i + 1].action === 'survey_complete') {
+        try {
+          const startDetails = JSON.parse(recentLogs[i].details || '{}')
+          const completeDetails = JSON.parse(recentLogs[i + 1].details || '{}')
+          if (startDetails.surveyId === completeDetails.surveyId) {
+            const duration = recentLogs[i + 1].createdAt.getTime() - recentLogs[i].createdAt.getTime()
+            const key = Math.round(duration / 1000) // Round to seconds
+            startCompletePairs[key] = (startCompletePairs[key] || 0) + 1
+          }
+        } catch {}
+      }
+    }
+
+    const pairValues = Object.values(startCompletePairs)
+    const identicalCount = pairValues.filter(v => v >= 3).length
+    if (identicalCount > 0) {
+      patterns.push('identical_completion_times')
+      confidence += 0.4
+    }
+
+    // Check for rapid-fire completions (multiple completions in very short time)
+    const rapidFireThreshold = 15 * 1000 // 15 seconds
+    let rapidFireCount = 0
+    for (let i = 1; i < timestamps.length; i++) {
+      if (timestamps[i] - timestamps[i - 1] < rapidFireThreshold && 
+          recentLogs[i].action === 'survey_complete' && 
+          recentLogs[i - 1].action === 'survey_complete') {
+        rapidFireCount++
+      }
+    }
+    if (rapidFireCount >= 2) {
+      patterns.push('rapid_fire_completions')
+      confidence += 0.5
+    }
+
+    confidence = Math.min(1, confidence)
+    return {
+      isBot: confidence >= 0.5,
+      confidence,
+      patterns,
+    }
+  }
+
+  // ==================== REFERRAL FRAUD DETECTION ====================
+  // Check if referred accounts are legitimate (same IP/device = fake referrals)
+  async checkReferralFraud(userId: string): Promise<{
+    isFraud: boolean
+    suspiciousReferrals: string[]
+    confidence: number
+  }> {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, inviteCode: true, ips: true, deviceFingerprint: true },
+    })
+
+    if (!user) return { isFraud: false, suspiciousReferrals: [], confidence: 0 }
+
+    // Find users who were invited by this user
+    const referredUsers = await db.user.findMany({
+      where: { invitedBy: user.inviteCode },
+      select: { id: true, email: true, ips: true, deviceFingerprint: true, surveysCompleted: true, createdAt: true },
+    })
+
+    if (referredUsers.length === 0) return { isFraud: false, suspiciousReferrals: [], confidence: 0 }
+
+    const suspiciousReferrals: string[] = []
+    let confidence = 0
+
+    const referrerIps = user.ips.map(ip => ip.ipAddress)
+    const referrerDevice = user.deviceFingerprint
+
+    for (const referred of referredUsers) {
+      let isSuspicious = false
+
+      // Same device fingerprint as referrer
+      if (referrerDevice && referred.deviceFingerprint && referrerDevice === referred.deviceFingerprint) {
+        isSuspicious = true
+        confidence += 0.4
+      }
+
+      // Same IP address as referrer
+      const referredIps = referred.ips.map(ip => ip.ipAddress)
+      const commonIps = referredIps.filter(ip => referrerIps.includes(ip))
+      if (commonIps.length > 0) {
+        isSuspicious = true
+        confidence += 0.3
+      }
+
+      // Referred account has zero or very few surveys (created just for referral bonus)
+      if (referred.surveysCompleted < 1) {
+        isSuspicious = true
+        confidence += 0.2
+      }
+
+      // Referred account created very recently and already earned
+      const accountAge = Date.now() - new Date(referred.createdAt).getTime()
+      const accountAgeHours = accountAge / (1000 * 60 * 60)
+      if (accountAgeHours < 24 && referred.surveysCompleted > 5) {
+        isSuspicious = true
+        confidence += 0.3
+      }
+
+      // Check if referred accounts share IPs/devices with each other
+      for (const otherReferred of referredUsers) {
+        if (otherReferred.id === referred.id) continue
+        const otherIps = otherReferred.ips.map(ip => ip.ipAddress)
+        const sharedIps = referredIps.filter(ip => otherIps.includes(ip))
+        if (sharedIps.length > 0) {
+          isSuspicious = true
+          confidence += 0.15
+        }
+      }
+
+      if (isSuspicious) {
+        suspiciousReferrals.push(referred.email)
+      }
+    }
+
+    confidence = Math.min(1, confidence)
+    return {
+      isFraud: suspiciousReferrals.length > 0 && confidence >= 0.3,
+      suspiciousReferrals,
+      confidence,
+    }
+  }
+
+  // ==================== AUTO-BLOCK / AUTO-FLAG ====================
+  // Automatically block or flag a user based on criteria
+  async autoBlockUser(userId: string, reason: string, blockType: 'flag' | 'block' | 'ban'): Promise<void> {
+    if (blockType === 'ban') {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          isBanned: true,
+          banReason: reason,
+          fraudScore: 100,
+          isFlagged: true,
+        },
+      })
+    } else if (blockType === 'block') {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          isVpnBlocked: true,
+          fraudScore: { increment: 30 },
+          isFlagged: true,
+        },
+      })
+    } else {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          isFlagged: true,
+          fraudScore: { increment: 15 },
+        },
+      })
+    }
+
+    // Log the auto-action
+    await db.fraudEvent.create({
+      data: {
+        userId,
+        eventType: blockType === 'ban' ? 'auto_banned' : blockType === 'block' ? 'auto_blocked' : 'auto_flagged',
+        severity: blockType === 'ban' ? 'critical' : blockType === 'block' ? 'high' : 'medium',
+        details: JSON.stringify({ reason, blockType, autoAction: true }),
+      },
+    })
+  }
+
+  // ==================== RATE LIMITER ====================
+  // Check if a user has exceeded rate limits for an action
+  async checkRateLimit(userId: string, action: string, maxActions: number, windowMinutes: number): Promise<{
+    isLimited: boolean
+    currentCount: number
+    windowMinutes: number
+  }> {
+    const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000)
+    const recentActions = await db.activityLog.findMany({
+      where: {
+        userId,
+        action,
+        createdAt: { gte: windowStart },
+      },
+    })
+
+    return {
+      isLimited: recentActions.length >= maxActions,
+      currentCount: recentActions.length,
+      windowMinutes,
+    }
+  }
 }
 
 // Export singleton instance
