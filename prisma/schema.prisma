@@ -1,0 +1,429 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER SYSTEM ====================
+
+model User {
+  id              String   @id @default(cuid())
+  userId          Int      @unique
+  email           String   @unique
+  passwordHash    String?
+  name            String?
+  firstname       String?
+  lastname        String?
+  avatar          String?
+  language        String   @default("English (en)")
+  newsletter      String   @default("Yes")
+  balance         Float    @default(0)
+  totalEarned     Float    @default(0)
+  surveysCompleted Int     @default(0)
+  surveyTarget    Int      @default(25)
+  earningRate     Float    @default(0.005)
+  inviteCode      String   @unique
+  invitedBy       String?
+  unclaimedRevenue Float   @default(0)
+  referralEarnings Float   @default(0)
+  friendsInvited  Int      @default(0)
+  
+  // Auth & verification
+  role            String   @default("user")
+  emailVerified   Boolean  @default(false)
+  emailVerificationToken String?
+  emailVerificationSentAt DateTime?
+  verificationLevel Int    @default(0)
+  isActive        Boolean  @default(true)
+  isBanned        Boolean  @default(false)
+  banReason       String?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  loginCount      Int      @default(0)
+  passwordResetToken String?
+  passwordResetExpires DateTime?
+  
+  // Anti-fraud fields
+  fraudScore      Float    @default(0)
+  fraudFlags      String   @default("[]")
+  isFlagged       Boolean  @default(false)
+  isVpnBlocked    Boolean  @default(false)
+  deviceFingerprint String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  sessions        Session[]
+  surveyAttempts  SurveyAttempt[]
+  cashouts        Cashout[]
+  activityLogs    ActivityLog[]
+  fraudEvents     FraudEvent[]
+  ips             UserIp[]
+  supportMessages SupportMessage[]
+  milestoneClaims MilestoneClaim[]
+  referralRecords ReferralEarning[]
+  notifications   Notification[]
+
+  @@index([email])
+  @@index([inviteCode])
+  @@index([role])
+  @@index([fraudScore])
+  @@index([isFlagged])
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  token         String   @unique
+  deviceFingerprint String?
+  ipAddress     String?
+  userAgent     String?
+  country       String?
+  city          String?
+  isVpn         Boolean  @default(false)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+model UserIp {
+  id        String   @id @default(cuid())
+  userId    String
+  ipAddress String
+  country   String?
+  city      String?
+  isVpn     Boolean  @default(false)
+  isProxy   Boolean  @default(false)
+  isTor     Boolean  @default(false)
+  isBlocked Boolean  @default(false)
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @updatedAt
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ipAddress])
+  @@index([ipAddress])
+  @@index([isBlocked])
+}
+
+// ==================== SURVEY SYSTEM ====================
+
+model SurveyWall {
+  id              String   @id @default(cuid())
+  name            String
+  provider        String
+  apiKey          String?
+  apiSecret       String?
+  endpointUrl     String?
+  isActive        Boolean  @default(true)
+  priority        Int      @default(0)
+  minPayout       Float    @default(0.01)
+  maxPayout       Float    @default(5.0)
+  description     String?
+  config          String   @default("{}")
+  
+  requireVerification Int  @default(0)
+  blockVpn        Boolean  @default(true)
+  blockProxy      Boolean  @default(true)
+  minFraudScore   Float    @default(50)
+  cooldownMinutes Int      @default(0)
+  
+  surveys         Survey[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([provider])
+  @@index([isActive])
+}
+
+model Survey {
+  id              String   @id @default(cuid())
+  wallId          String
+  externalId      String?
+  title           String
+  description     String?
+  timeMinutes     Int
+  reward          Float
+  rating          Float    @default(5.0)
+  reviews         Int      @default(0)
+  available       Int      @default(1)
+  category        String?
+  country         String?
+  language        String?
+  
+  maxCompletions  Int      @default(-1)
+  currentCompletions Int   @default(0)
+  
+  isActive        Boolean  @default(true)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  wall            SurveyWall @relation(fields: [wallId], references: [id], onDelete: Cascade)
+  attempts        SurveyAttempt[]
+
+  @@index([wallId])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+model SurveyAttempt {
+  id              String   @id @default(cuid())
+  userId          String
+  surveyId        String
+  status          String   @default("started")
+  reward          Float    @default(0)
+  timeSpent       Int      @default(0)
+  answers         String   @default("{}")
+  
+  ipAddress       String?
+  deviceFingerprint String?
+  isFlagged       Boolean  @default(false)
+  flagReason      String?
+  completionSpeed Float?
+  answerConsistency Float?
+  
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  survey          Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([surveyId])
+  @@index([status])
+  @@index([isFlagged])
+}
+
+// ==================== CASHOUT SYSTEM ====================
+
+model Cashout {
+  id              String   @id @default(cuid())
+  userId          String
+  giftCardType    String
+  amount          Float
+  paymentDetail   String?
+  status          String   @default("pending")
+  
+  ipAddress       String?
+  isFlagged       Boolean  @default(false)
+  flagReason      String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  
+  isChargeback    Boolean  @default(false)
+  chargebackReason String?
+  chargebackAmount Float?
+  chargebackBy    String?
+  chargebackAt    DateTime?
+  balanceDeducted Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  processedAt     DateTime?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([isFlagged])
+  @@index([isChargeback])
+}
+
+// ==================== ANTI-FRAUD SYSTEM ====================
+
+model FraudEvent {
+  id              String   @id @default(cuid())
+  userId          String?
+  eventType       String
+  severity        String   @default("medium")
+  details         String   @default("{}")
+  ipAddress       String?
+  deviceFingerprint String?
+  country         String?
+  city            String?
+  isResolved      Boolean  @default(false)
+  resolvedBy      String?
+  resolution      String?
+  
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventType])
+  @@index([severity])
+  @@index([isResolved])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id              String   @id @default(cuid())
+  userId          String
+  action          String
+  details         String   @default("{}")
+  ipAddress       String?
+  userAgent       String?
+  deviceFingerprint String?
+  country         String?
+  city            String?
+  
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model BlockedIp {
+  id              String   @id @default(cuid())
+  ipAddress       String   @unique
+  reason          String
+  blockedBy       String?
+  isAutoBlocked   Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+
+  @@index([ipAddress])
+}
+
+model BlockedDevice {
+  id              String   @id @default(cuid())
+  fingerprint     String   @unique
+  reason          String
+  blockedBy       String?
+  isAutoBlocked   Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+
+  @@index([fingerprint])
+}
+
+// ==================== ADMIN SYSTEM ====================
+
+model AdminSettings {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String
+  description     String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([key])
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  adminId         String
+  action          String
+  target          String?
+  details         String   @default("{}")
+  ipAddress       String?
+  
+  createdAt       DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ==================== MILESTONE & REFERRAL SYSTEM ====================
+
+model MilestoneClaim {
+  id              String   @id @default(cuid())
+  userId          String
+  milestone       Int      // 10, 15, 25, or 100
+  reward          Float    // 0.25, 0.50, 1.00, or 2.50
+  status          String   @default("pending")  // pending, claimed
+  claimedAt       DateTime?
+
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, milestone])
+  @@index([userId])
+  @@index([status])
+}
+
+model ReferralEarning {
+  id              String   @id @default(cuid())
+  referrerId      String   // The user who invited
+  referredId      String   // The user who was invited
+  referredEmail   String
+  surveyReward    Float    // How much the referred user earned from a survey
+  referralPercent Float    @default(0.10)  // 10% commission
+  referralAmount  Float    // Actual amount earned by referrer
+  status          String   @default("unclaimed")  // unclaimed, claimed
+  claimedAt       DateTime?
+
+  createdAt       DateTime @default(now())
+
+  referrer        User     @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+  @@index([referredId])
+  @@index([status])
+}
+
+// ==================== NOTIFICATION SYSTEM ====================
+
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  type            String   // login, survey_complete, offer_complete, milestone, referral, cashout, system
+  title           String
+  message         String
+  isRead          Boolean  @default(false)
+  iconType        String   @default("info")  // login, reward, money, star, users, info
+  offerwall       String?  // e.g. "Revtoo", "CPX Research", "Bitlabs" etc.
+  rewardAmount    Float?   // reward amount if applicable
+  metadata        String   @default("{}")  // extra JSON data
+
+  createdAt       DateTime @default(now())
+  readAt          DateTime?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ==================== SUPPORT SYSTEM ====================
+
+model SupportMessage {
+  id              String   @id @default(cuid())
+  name            String
+  email           String
+  message         String
+  status          String   @default("open")    // open, read, replied, closed
+  priority        String   @default("normal")  // low, normal, high, urgent
+  adminReply      String?
+  repliedBy       String?
+  
+  // Link to user if logged in
+  userId          String?
+  
+  createdAt       DateTime @default(now())
+  readAt          DateTime?
+  repliedAt       DateTime?
+
+  // Relations
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([email])
+  @@index([createdAt])
+  @@index([userId])
+}
