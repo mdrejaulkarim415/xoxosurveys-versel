@@ -2,6 +2,7 @@
 
 import { useApp } from '@/app/page'
 import { useState } from 'react'
+import { LegalModal } from './legal-modal'
 
 const languages = [
   'English (en)', 'German (de)', 'Spanish (es)', 'French (fr)', 'Portuguese (pt)',
@@ -34,6 +35,7 @@ export function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [legalPage, setLegalPage] = useState<'terms' | 'privacy' | null>(null)
 
   const handleResendVerification = async () => {
     setResendLoading(true)
@@ -206,6 +208,7 @@ export function SettingsPage() {
   const labelStyle = "block text-[13px] font-semibold text-[#6B7280] mb-2 uppercase tracking-wide"
 
   return (
+    <>
     <div className="max-w-[640px]">
       {/* Page Header */}
       <div className="mb-8">
@@ -698,6 +701,51 @@ export function SettingsPage() {
         </div>
       </div>
 
+      {/* Legal Links */}
+      <div className="rounded-[16px] border border-[#E2EAF1] bg-white overflow-hidden" style={{ boxShadow: '0px 4px 20px 0px rgba(191, 197, 209, 0.20)' }}>
+        <div className="p-5 border-b border-[#F0F2F5]">
+          <h2 className="text-[16px] font-bold text-[#36383A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>Legal</h2>
+        </div>
+        <div className="divide-y divide-[#F0F2F5]">
+          <button
+            onClick={() => setLegalPage('terms')}
+            className="w-full flex items-center justify-between p-4 hover:bg-[#FAFBFC] transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-[32px] h-[32px] rounded-full bg-[#F0F2F5] flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8C939E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+              </div>
+              <span className="text-[14px] font-medium text-[#36383A]">Terms of Service</span>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B0B7C3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setLegalPage('privacy')}
+            className="w-full flex items-center justify-between p-4 hover:bg-[#FAFBFC] transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-[32px] h-[32px] rounded-full bg-[#F0F2F5] flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8C939E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
+              <span className="text-[14px] font-medium text-[#36383A]">Privacy Policy</span>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B0B7C3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
       {/* Delete Account */}
       {showDeleteConfirm ? (
         <div className="rounded-[16px] border border-[#FECACA] bg-[#FEF2F2] p-6">
@@ -744,5 +792,9 @@ export function SettingsPage() {
         </button>
       )}
     </div>
+
+      {/* Legal Modals */}
+      <LegalModal page={legalPage} onClose={() => setLegalPage(null)} />
+    </>
   )
 }

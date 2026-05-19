@@ -2,6 +2,9 @@
 
 import { useState } from 'react'
 import { useApp } from '@/app/page'
+import { LegalModal } from './legal-modal'
+
+type LegalPage = 'terms' | 'privacy' | null
 
 export function AuthPage() {
   const { login } = useApp()
@@ -17,6 +20,7 @@ export function AuthPage() {
   const [forgotSent, setForgotSent] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [legalPage, setLegalPage] = useState<LegalPage>(null)
 
   const handleRegister = async () => {
     if (!email || !password) {
@@ -66,7 +70,7 @@ export function AuthPage() {
         userId: data.user.userId,
         balance: data.user.balance || 0,
         surveysCompleted: data.user.surveysCompleted || 0,
-        surveyTarget: data.user.surveyTarget || 100,
+        surveyTarget: data.user.surveyTarget || 25,
         earningRate: data.user.earningRate || 0.005,
         inviteCode: data.user.inviteCode,
         unclaimedRevenue: data.user.unclaimedRevenue || 0,
@@ -121,7 +125,7 @@ export function AuthPage() {
         userId: data.user.userId,
         balance: data.user.balance || 0,
         surveysCompleted: data.user.surveysCompleted || 0,
-        surveyTarget: data.user.surveyTarget || 100,
+        surveyTarget: data.user.surveyTarget || 25,
         earningRate: data.user.earningRate || 0.005,
         inviteCode: data.user.inviteCode,
         unclaimedRevenue: data.user.unclaimedRevenue || 0,
@@ -771,9 +775,9 @@ export function AuthPage() {
                       />
                       <label htmlFor="terms" className="text-[14px] text-[#4B4B4B] leading-snug">
                         I agree with{' '}
-                        <span className="text-[#0FBCC0] font-medium cursor-pointer hover:underline">Terms</span>
+                        <span onClick={() => setLegalPage('terms')} className="text-[#0FBCC0] font-medium cursor-pointer hover:underline">Terms</span>
                         {' '}and{' '}
-                        <span className="text-[#0FBCC0] font-medium cursor-pointer hover:underline">Privacy Policy</span>
+                        <span onClick={() => setLegalPage('privacy')} className="text-[#0FBCC0] font-medium cursor-pointer hover:underline">Privacy Policy</span>
                       </label>
                     </div>
                   )}
@@ -969,12 +973,15 @@ export function AuthPage() {
             <span className="text-[14px] text-[#999999]">XoXoSurveys &copy; {new Date().getFullYear()}</span>
           </div>
           <div className="flex items-center gap-5 text-[14px] text-[#999999]">
-            <button className="hover:text-[#36383A] transition-colors">Terms</button>
-            <button className="hover:text-[#36383A] transition-colors">Privacy Policy</button>
+            <button onClick={() => setLegalPage('terms')} className="hover:text-[#36383A] transition-colors">Terms</button>
+            <button onClick={() => setLegalPage('privacy')} className="hover:text-[#36383A] transition-colors">Privacy Policy</button>
             <button className="hover:text-[#36383A] transition-colors">Contact</button>
           </div>
         </div>
       </footer>
+
+      {/* Legal Modals */}
+      <LegalModal page={legalPage} onClose={() => setLegalPage(null)} />
     </div>
   )
 }
