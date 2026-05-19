@@ -32,8 +32,22 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({ cashouts })
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('[Cashout History] Error:', error)
+
+    if (error?.code === 'P1001') {
+      return NextResponse.json(
+        { error: 'Database connection failed. Please check DATABASE_URL environment variable.' },
+        { status: 500 }
+      )
+    }
+    if (error?.code === 'P2021') {
+      return NextResponse.json(
+        { error: 'Database tables not found. Please run: npx prisma db push' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'Failed to fetch cashout history' },
       { status: 500 }
