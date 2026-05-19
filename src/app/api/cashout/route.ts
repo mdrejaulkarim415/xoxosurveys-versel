@@ -160,10 +160,31 @@ export async function POST(request: NextRequest) {
       reserveAmount,
       totalDeduction,
     })
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('[Cashout] Error:', error)
+
+    // Provide specific error messages for common database issues
+    if (error?.code === 'P1001') {
+      return NextResponse.json(
+        { error: 'Database connection failed. Please check DATABASE_URL environment variable.' },
+        { status: 500 }
+      )
+    }
+    if (error?.code === 'P2021') {
+      return NextResponse.json(
+        { error: 'Database tables not found. Please run: npx prisma db push' },
+        { status: 500 }
+      )
+    }
+    if (error?.code === 'P2034') {
+      return NextResponse.json(
+        { error: 'Transaction conflict. Please try again.' },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json(
-      { error: 'Failed to process cashout request' },
+      { error: 'Failed to process cashout request', details: process.env.NODE_ENV === 'development' ? error?.message : undefined },
       { status: 500 }
     )
   }
