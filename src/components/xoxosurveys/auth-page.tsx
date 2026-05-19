@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useApp } from '@/app/page'
 import { LegalModal } from './legal-modal'
+import { ContactModal } from './contact-modal'
 
 type LegalPage = 'terms' | 'privacy' | null
 
@@ -21,6 +22,7 @@ export function AuthPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [legalPage, setLegalPage] = useState<LegalPage>(null)
+  const [showContact, setShowContact] = useState(false)
 
   const handleRegister = async () => {
     if (!email || !password) {
@@ -975,13 +977,14 @@ export function AuthPage() {
           <div className="flex items-center gap-5 text-[14px] text-[#999999]">
             <button onClick={() => setLegalPage('terms')} className="hover:text-[#36383A] transition-colors">Terms</button>
             <button onClick={() => setLegalPage('privacy')} className="hover:text-[#36383A] transition-colors">Privacy Policy</button>
-            <button className="hover:text-[#36383A] transition-colors">Contact</button>
+            <button onClick={() => setShowContact(true)} className="hover:text-[#36383A] transition-colors">Contact</button>
           </div>
         </div>
       </footer>
 
       {/* Legal Modals */}
       <LegalModal page={legalPage} onClose={() => setLegalPage(null)} />
+      {showContact && <ContactModal onClose={() => setShowContact(false)} />}
     </div>
   )
 }
