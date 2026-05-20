@@ -6,6 +6,7 @@ const userSelect = {
   userId: true,
   balance: true,
   reservedBalance: true,
+  pendingReserve: true,
   totalEarned: true,
   surveysCompleted: true,
   surveyTarget: true,

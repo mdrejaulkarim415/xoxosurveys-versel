@@ -68,7 +68,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
       if (cashoutForReject && cashoutForReject.reserveAmount > 0 && cashoutForReject.reserveStatus === 'held') {
         // Refund the withdrawal amount + release reserve back to user balance
+        // Also cancel any pendingReserve for this cashout
         const totalRefund = cashoutForReject.amount + cashoutForReject.reserveAmount
+
+        // Calculate how much reserve was actually collected upfront vs pending
+        // The cashout record has the full reserveAmount, but some may be in pendingReserve
+        const userForReject = await db.user.findUnique({
+          where: { id: cashoutForReject.userId },
+          select: { reservedBalance: true, pendingReserve: true },
+        })
+
+        // The upfront reserve is what's in reservedBalance for this cashout
+        // The pending portion needs to be cancelled from pendingReserve
+        const upfrontReserveCollected = Math.min(cashoutForReject.reserveAmount, userForReject?.reservedBalance || 0)
+        const pendingReserveToCancel = cashoutForReject.reserveAmount - upfrontReserveCollected
 
         await db.$transaction(async (tx) => {
           // Update cashout: mark reserve as released and set rejection
@@ -81,13 +94,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             },
           })
 
-          // Decrement reservedBalance and increment balance with the full refund
+          // Build user update data
+          const userUpdateData: Record<string, unknown> = {
+            balance: { increment: totalRefund },
+          }
+
+          // Decrement reservedBalance by the upfront portion collected
+          if (upfrontReserveCollected > 0) {
+            userUpdateData.reservedBalance = { decrement: upfrontReserveCollected }
+          }
+
+          // Cancel any pending reserve that was queued from this cashout
+          if (pendingReserveToCancel > 0 && userForReject && userForReject.pendingReserve > 0) {
+            const cancelAmount = Math.min(pendingReserveToCancel, userForReject.pendingReserve)
+            userUpdateData.pendingReserve = { decrement: cancelAmount }
+          }
+
           await tx.user.update({
             where: { id: cashoutForReject.userId },
-            data: {
-              reservedBalance: { decrement: cashoutForReject.reserveAmount },
-              balance: { increment: totalRefund },
-            },
+            data: userUpdateData,
           })
 
           // Create audit log for reserve release on rejection

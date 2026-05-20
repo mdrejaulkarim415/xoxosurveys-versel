@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { checkAndTriggerAutoReview } from '@/lib/account-review'
+import { collectPendingReserve } from '@/lib/reserve'
 
 /**
  * Revtoo Postback Endpoint
@@ -142,11 +143,12 @@ async function handlePostback(request: NextRequest) {
       console.log(`[Revtoo Postback] Unexpected offer ID: ${finalOfferId}`)
     }
 
-    // Update user balance
+    // Update user balance (with pending reserve collection)
+    const { reserveCollected, balanceCredited } = await collectPendingReserve(user.id, earnedAmount)
     await db.user.update({
       where: { id: user.id },
       data: {
-        balance: { increment: earnedAmount },
+        balance: { increment: balanceCredited },
         totalEarned: { increment: earnedAmount },
         surveysCompleted: { increment: 1 },
       },
@@ -188,28 +190,25 @@ async function handlePostback(request: NextRequest) {
     console.log(`[Revtoo Postback] Success: User ${finalUserId} earned $${earnedAmount.toFixed(2)} for offer ${finalOfferId}`)
 
     // Create notification for the user about the survey completion
-    // This is critical - log detailed errors if it fails
     try {
-      const notification = await db.notification.create({
+      await db.notification.create({
         data: {
           userId: user.id,
           type: 'offer_complete',
           title: 'Survey Completed!',
-          message: `You earned $${earnedAmount.toFixed(3)} from Revtoo${finalOfferId ? ` (Offer #${finalOfferId})` : ''}`,
+          message: `You earned $${earnedAmount.toFixed(2)} from Revtoo${finalOfferId ? ` (Offer #${finalOfferId})` : ''}`,
           iconType: 'reward',
           offerwall: 'Revtoo',
           rewardAmount: earnedAmount,
           metadata: JSON.stringify({ provider: 'revtoo', offerId: finalOfferId, payout: finalPayout, reward: earnedAmount, transactionId: finalTransactionId }),
         },
       })
-      console.log(`[Revtoo Postback] Notification created successfully:`, notification.id)
-    } catch (notifError) {
-      // Log the FULL error so we can diagnose database issues
-      console.error(`[Revtoo Postback] *** NOTIFICATION CREATION FAILED ***`)
-      console.error(`[Revtoo Postback] Error details:`, notifError)
-      console.error(`[Revtoo Postback] This usually means the Notification table doesn't exist in the database.`)
-      console.error(`[Revtoo Postback] FIX: Run "npx prisma db push" to sync the schema with your Neon database.`)
-      // Don't fail the postback - the user still gets credited
+      console.log(`[Revtoo Postback] Notification created for user ${user.id}`)
+    } catch (e: any) {
+      console.warn('[Revtoo Postback] Notification creation failed:', e?.code || e?.message || e)
+      if (e?.code === 'P2021') {
+        console.error('[Revtoo Postback] CRITICAL: Notification table does not exist! Run: npx prisma db push')
+      }
     }
 
     // Referral: If user was invited, auto-credit referrer 10% commission

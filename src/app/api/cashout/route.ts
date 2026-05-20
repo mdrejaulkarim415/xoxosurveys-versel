@@ -5,11 +5,18 @@ import { db } from '@/lib/db'
  * POST /api/cashout - Create a new cashout request
  * Body: { userId, giftCardType, amount, paymentDetail }
  *
- * Reserve Amount Logic:
- * - For every $5 withdrawn, $2 is held in reserve
- * - reserveAmount = Math.floor(withdrawalAmount / 5) * 2
- * - Total deduction = withdrawalAmount + reserveAmount
- * - The reserve is stored in Cashout.reserveAmount and User.reservedBalance
+ * NEW Reserve Amount Logic (Progressive + Smooth):
+ * - Reserve rate: 40% of withdrawal amount (smooth, no step jumps)
+ * - reserveAmount = Math.round(amount * 0.4 * 100) / 100
+ * - If user has enough balance: full reserve collected upfront
+ * - If not enough for full reserve: minimum $2 upfront + rest becomes pendingReserve
+ * - pendingReserve is collected from future survey earnings (40% of each earning)
+ *
+ * This prevents users from gaming the system by withdrawing just under $10
+ * to avoid the $4 reserve step-jump in the old formula.
+ *
+ * Old formula: Math.floor(amount / 5) * 2  (step-based, gameable)
+ * New formula: Math.round(amount * 0.4 * 100) / 100  (smooth, continuous)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -32,14 +39,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate reserve amount: $2 reserve per $5 withdrawal
-    const reserveAmount = Math.floor(amountNum / 5) * 2
+    // NEW: Calculate reserve amount with smooth formula (40% of withdrawal, no step jumps)
+    // This prevents gaming by withdrawing just under $10
+    const reserveAmount = Math.round(amountNum * 0.4 * 100) / 100
     const totalDeduction = amountNum + reserveAmount
 
     // Find user by cuid
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { id: true, balance: true, emailVerified: true, isBanned: true, isUnderReview: true, email: true },
+      select: { id: true, balance: true, emailVerified: true, isBanned: true, isUnderReview: true, email: true, pendingReserve: true },
     })
 
     if (!user) {
@@ -56,16 +64,6 @@ export async function POST(request: NextRequest) {
 
     if (!user.emailVerified) {
       return NextResponse.json({ error: 'Email must be verified to cash out' }, { status: 403 })
-    }
-
-    // Check total deduction (withdrawal + reserve)
-    if (user.balance < totalDeduction) {
-      return NextResponse.json(
-        {
-          error: `Insufficient balance. You need at least $${totalDeduction.toFixed(2)} (withdrawal: $${amountNum.toFixed(2)} + reserve: $${reserveAmount.toFixed(2)})`,
-        },
-        { status: 400 }
-      )
     }
 
     // Min/max amounts per gift card type
@@ -97,16 +95,59 @@ export async function POST(request: NextRequest) {
     const forwarded = request.headers.get('x-forwarded-for')
     const ipAddress = forwarded ? forwarded.split(',')[0].trim() : null
 
+    // Determine how much reserve can be collected upfront
+    // If user has enough balance for full reserve: collect all upfront
+    // If not enough: collect what's available, rest becomes pendingReserve (collected from future earnings)
+    let upfrontReserve = reserveAmount
+    let pendingReserveAdd = 0
+    const minUpfrontReserve = 2.00 // Minimum $2 reserve upfront
+
+    if (user.balance < totalDeduction) {
+      // User doesn't have enough for full reserve
+      // Check if they at least have enough for withdrawal + minimum upfront
+      if (user.balance >= amountNum + minUpfrontReserve) {
+        // Can pay minimum upfront, rest goes to pending
+        upfrontReserve = minUpfrontReserve
+        pendingReserveAdd = reserveAmount - minUpfrontReserve
+      } else if (user.balance >= amountNum) {
+        // Can barely pay the withdrawal, all reserve goes to pending
+        upfrontReserve = user.balance - amountNum
+        if (upfrontReserve < 0) upfrontReserve = 0
+        pendingReserveAdd = reserveAmount - upfrontReserve
+      } else {
+        // Not enough even for the withdrawal
+        return NextResponse.json(
+          {
+            error: `Insufficient balance. You need at least $${amountNum.toFixed(2)} for withdrawal. Reserve: $${reserveAmount.toFixed(2)} (collected from future earnings if balance is low)`,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const actualDeduction = amountNum + upfrontReserve
+
     // Create cashout and deduct balance in a transaction
     const cashout = await db.$transaction(async (tx) => {
-      // Deduct total (withdrawal + reserve) from user balance
+      // Deduct withdrawal + upfront reserve from user balance
+      const updateData: Record<string, unknown> = {
+        balance: { decrement: actualDeduction },
+      }
+
+      // Add upfront reserve to reservedBalance
+      if (upfrontReserve > 0) {
+        updateData.reservedBalance = { increment: upfrontReserve }
+      }
+
+      // Add pending reserve (to be collected from future earnings)
+      if (pendingReserveAdd > 0) {
+        updateData.pendingReserve = { increment: pendingReserveAdd }
+      }
+
       const updatedUser = await tx.user.update({
         where: { id: user.id },
-        data: {
-          balance: { decrement: totalDeduction },
-          reservedBalance: { increment: reserveAmount },
-        },
-        select: { balance: true, reservedBalance: true },
+        data: updateData,
+        select: { balance: true, reservedBalance: true, pendingReserve: true },
       })
 
       // Create cashout record with reserve info
@@ -133,14 +174,21 @@ export async function POST(request: NextRequest) {
             giftCardType,
             amount: amountNum,
             reserveAmount,
-            totalDeduction,
+            upfrontReserve,
+            pendingReserve: pendingReserveAdd,
+            totalDeduction: actualDeduction,
             paymentDetail: paymentDetail?.trim() || null,
           }),
           ipAddress,
         },
       })
 
-      return { ...newCashout, newBalance: updatedUser.balance, newReservedBalance: updatedUser.reservedBalance }
+      return {
+        ...newCashout,
+        newBalance: updatedUser.balance,
+        newReservedBalance: updatedUser.reservedBalance,
+        newPendingReserve: updatedUser.pendingReserve,
+      }
     })
 
     return NextResponse.json({
@@ -157,8 +205,11 @@ export async function POST(request: NextRequest) {
       },
       newBalance: cashout.newBalance,
       newReservedBalance: cashout.newReservedBalance,
+      newPendingReserve: cashout.newPendingReserve,
       reserveAmount,
-      totalDeduction,
+      upfrontReserve,
+      pendingReserve: pendingReserveAdd,
+      totalDeduction: actualDeduction,
     })
   } catch (error: any) {
     console.error('[Cashout] Error:', error)

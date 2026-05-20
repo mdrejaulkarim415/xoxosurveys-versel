@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { checkAndTriggerAutoReview } from '@/lib/account-review'
+import { collectPendingReserve } from '@/lib/reserve'
 
 /**
  * Generic Survey Callback / Postback Endpoint
@@ -130,11 +131,12 @@ async function handleExternalPostback(
       ? finalPayout * 0.7
       : 0.05
 
-  // Update user balance
+  // Update user balance (with pending reserve collection)
+  const { reserveCollected, balanceCredited } = await collectPendingReserve(user.id, earnedAmount)
   await db.user.update({
     where: { id: user.id },
     data: {
-      balance: { increment: earnedAmount },
+      balance: { increment: balanceCredited },
       totalEarned: { increment: earnedAmount },
       surveysCompleted: { increment: 1 },
     },
@@ -221,15 +223,19 @@ async function handleExternalPostback(
         userId: user.id,
         type: 'offer_complete',
         title: `Offer Completed!`,
-        message: `You earned $${earnedAmount.toFixed(3)} from ${providerName}${offerId ? ` (Offer #${offerId})` : ''}`,
+        message: `You earned $${earnedAmount.toFixed(2)} from ${providerName}${offerId ? ` (Offer #${offerId})` : ''}`,
         iconType: 'reward',
         offerwall: providerName,
         rewardAmount: earnedAmount,
         metadata: JSON.stringify({ provider, offerId, payout: finalPayout, reward: earnedAmount, transactionId }),
       },
     })
-  } catch (e) {
-    console.warn('[Survey Callback] Notification creation failed:', e)
+    console.log(`[Survey Callback] Notification created for user ${user.id}`)
+  } catch (e: any) {
+    console.warn('[Survey Callback] Notification creation failed:', e?.code || e?.message || e)
+    if (e?.code === 'P2021') {
+      console.error('[Survey Callback] CRITICAL: Notification table does not exist! Run: npx prisma db push')
+    }
   }
 
   // Auto-trigger account review if user earned $4 or more
@@ -398,15 +404,19 @@ async function handleInternalCallback(body: Record<string, string>) {
           userId,
           type: 'survey_complete',
           title: 'Survey Completed!',
-          message: `You earned $${earnedReward.toFixed(3)} from ${offerwallLabel}`,
+          message: `You earned $${earnedReward.toFixed(2)} from ${offerwallLabel}`,
           iconType: 'reward',
           offerwall: offerwallLabel,
           rewardAmount: earnedReward,
           metadata: JSON.stringify({ surveyId, reward: earnedReward, timeSpent: timeSpentNum }),
         },
       })
-    } catch (e) {
-      console.warn('[Internal Callback] Notification creation failed:', e)
+      console.log(`[Internal Callback] Notification created for user ${userId}`)
+    } catch (e: any) {
+      console.warn('[Internal Callback] Notification creation failed:', e?.code || e?.message || e)
+      if (e?.code === 'P2021') {
+        console.error('[Internal Callback] CRITICAL: Notification table does not exist! Run: npx prisma db push')
+      }
     }
 
     // If flagged, create fraud event

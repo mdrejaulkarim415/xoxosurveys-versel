@@ -221,9 +221,9 @@ export function CashoutPage() {
   const [cashoutHistory, setCashoutHistory] = useState<CashoutRecord[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
 
-  // Reserve calculation helper
+  // Reserve calculation helper - NEW smooth formula (40% of withdrawal, no step jumps)
   const calculateReserve = (withdrawalAmount: number): number => {
-    return Math.floor(withdrawalAmount / 5) * 2
+    return Math.round(withdrawalAmount * 0.4 * 100) / 100
   }
 
   const calculateTotalDeduction = (withdrawalAmount: number): number => {
@@ -436,8 +436,9 @@ export function CashoutPage() {
           <div>
             <h3 className="text-[14px] font-bold text-[#92400E] mb-1">Reserve Amount Policy</h3>
             <p className="text-[13px] text-[#78350F]">
-              For every $5 withdrawn, $2 is on hold in reserve. The reserve will be released by admin after approval.
-              Example: $5 withdraw requires $7 balance ($5 + $2 reserve).
+              40% of your withdrawal is held in reserve. The reserve will be released by admin after approval.
+              Example: $5 withdraw requires $7 balance ($5 + $2 reserve). $10 withdraw requires $14 balance ($10 + $4 reserve).
+              There are no step jumps — every dollar counts proportionally.
             </p>
           </div>
         </div>

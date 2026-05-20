@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { antiFraudEngine } from '@/lib/anti-fraud'
 import { checkAndTriggerAutoReview } from '@/lib/account-review'
+import { collectPendingReserve } from '@/lib/reserve'
 
 export async function POST(request: NextRequest) {
   try {
@@ -243,12 +244,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 12. Update user balance (only if not flagged)
+    // 12. Update user balance (only if not flagged) — with pending reserve collection
     if (!isFlagged) {
+      const { reserveCollected, balanceCredited } = await collectPendingReserve(userId, finalReward)
       await db.user.update({
         where: { id: userId },
         data: {
-          balance: { increment: finalReward },
+          balance: { increment: balanceCredited },
           totalEarned: { increment: finalReward },
           surveysCompleted: { increment: 1 },
         },
@@ -358,15 +360,19 @@ export async function POST(request: NextRequest) {
             userId,
             type: 'survey_complete',
             title: 'Survey Completed!',
-            message: `You earned $${finalReward.toFixed(3)} from ${offerwallLabel}`,
+            message: `You earned $${finalReward.toFixed(2)} from ${offerwallLabel}`,
             iconType: 'reward',
             offerwall: offerwallLabel,
             rewardAmount: finalReward,
             metadata: JSON.stringify({ surveyId, reward: finalReward, timeSpent }),
           },
         })
-      } catch (e) {
-        console.warn('[Survey Complete] Notification creation failed:', e)
+        console.log(`[Survey Complete] Notification created for user ${userId}`)
+      } catch (e: any) {
+        console.warn('[Survey Complete] Notification creation failed:', e?.code || e?.message || e)
+        if (e?.code === 'P2021') {
+          console.error('[Survey Complete] CRITICAL: Notification table does not exist! Run: npx prisma db push')
+        }
       }
     }
 
