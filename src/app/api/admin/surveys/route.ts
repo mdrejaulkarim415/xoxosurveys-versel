@@ -33,12 +33,44 @@ export async function GET(request: Request) {
         orderBy: { createdAt: 'desc' },
         include: {
           wall: { select: { id: true, name: true, provider: true } },
+          _count: {
+            select: {
+              attempts: {
+                where: { status: 'completed' },
+              },
+            },
+          },
         },
       }),
       db.survey.count({ where }),
     ])
 
-    return NextResponse.json({ surveys, total, page, limit })
+    // Get real stats from the full database (not just current page)
+    const [activeSurveyCount, totalSurveyCompletions, completedAttempts] = await Promise.all([
+      db.survey.count({ where: { isActive: true } }),
+      db.surveyAttempt.count({ where: { status: 'completed' } }),
+      db.surveyAttempt.count({ where: { status: 'completed' } }),
+    ])
+
+    // Get total reward earned from completed attempts
+    const rewardAgg = await db.surveyAttempt.aggregate({
+      where: { status: 'completed' },
+      _sum: { reward: true },
+    })
+
+    const stats = {
+      activeSurveys: activeSurveyCount,
+      totalCompletions: totalSurveyCompletions,
+      totalRevenue: rewardAgg._sum.reward || 0,
+    }
+
+    // Map surveys to include attemptCount from _count
+    const mappedSurveys = surveys.map(survey => ({
+      ...survey,
+      attemptCount: (survey as any)._count?.attempts || 0,
+    }))
+
+    return NextResponse.json({ surveys: mappedSurveys, total, page, limit, stats })
   } catch (error) {
     console.error('Surveys list error:', error)
     return NextResponse.json({ error: 'Failed to fetch surveys' }, { status: 500 })

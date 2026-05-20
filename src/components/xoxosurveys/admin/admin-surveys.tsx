@@ -39,6 +39,10 @@ import {
   ChevronRight,
   CheckCircle,
   XCircle,
+  Eye,
+  Users,
+  DollarSign,
+  RefreshCw,
 } from 'lucide-react'
 
 interface Survey {
@@ -56,6 +60,7 @@ interface Survey {
   language: string | null
   maxCompletions: number
   currentCompletions: number
+  attemptCount: number
   isActive: boolean
   startsAt: string | null
   expiresAt: string | null
@@ -63,13 +68,28 @@ interface Survey {
   wall?: { id: string; name: string; provider: string } | null
 }
 
+interface SurveyAttempt {
+  id: string
+  userId: string
+  surveyId: string
+  status: string
+  reward: number
+  timeSpent: number | null
+  isFlagged: boolean
+  flagReason: string | null
+  completionSpeed: number | null
+  startedAt: string | null
+  completedAt: string | null
+  user?: { id: string; email: string; userId: number } | null
+}
+
 interface SurveyStats {
   activeSurveys: number
   totalCompletions: number
-  avgCompletionRate: number
+  totalRevenue: number
 }
 
-const emptySurvey: Omit<Survey, 'id' | 'createdAt' | 'wall' | 'currentCompletions'> = {
+const emptySurvey: Omit<Survey, 'id' | 'createdAt' | 'wall' | 'currentCompletions' | 'attemptCount'> = {
   wallId: '',
   externalId: '',
   title: '',
@@ -89,7 +109,7 @@ const emptySurvey: Omit<Survey, 'id' | 'createdAt' | 'wall' | 'currentCompletion
 
 export function AdminSurveys() {
   const [surveys, setSurveys] = useState<Survey[]>([])
-  const [stats, setStats] = useState<SurveyStats>({ activeSurveys: 0, totalCompletions: 0, avgCompletionRate: 0 })
+  const [stats, setStats] = useState<SurveyStats>({ activeSurveys: 0, totalCompletions: 0, totalRevenue: 0 })
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -102,6 +122,10 @@ export function AdminSurveys() {
   const [formData, setFormData] = useState(emptySurvey)
   const [saving, setSaving] = useState(false)
   const [walls, setWalls] = useState<{ id: string; name: string }[]>([])
+  const [showAttempts, setShowAttempts] = useState(false)
+  const [attemptsSurvey, setAttemptsSurvey] = useState<Survey | null>(null)
+  const [attempts, setAttempts] = useState<SurveyAttempt[]>([])
+  const [attemptsLoading, setAttemptsLoading] = useState(false)
 
   const fetchSurveys = useCallback(async () => {
     try {
@@ -118,19 +142,10 @@ export function AdminSurveys() {
         const data = await res.json()
         setSurveys(data.surveys || [])
         setTotal(data.total || 0)
-
-        // Compute stats from the data
-        const activeCount = (data.surveys || []).filter((s: Survey) => s.isActive).length
-        const totalCompletions = (data.surveys || []).reduce((sum: number, s: Survey) => sum + s.currentCompletions, 0)
-        const withMax = (data.surveys || []).filter((s: Survey) => s.maxCompletions > 0)
-        const avgRate = withMax.length > 0
-          ? withMax.reduce((sum: number, s: Survey) => sum + (s.maxCompletions > 0 ? (s.currentCompletions / s.maxCompletions) * 100 : 0), 0) / withMax.length
-          : 0
-        setStats({
-          activeSurveys: activeCount,
-          totalCompletions,
-          avgCompletionRate: Math.round(avgRate * 10) / 10,
-        })
+        // Use real stats from API (full database, not just current page)
+        if (data.stats) {
+          setStats(data.stats)
+        }
       }
     } catch (err) {
       console.error('Failed to fetch surveys:', err)
@@ -150,6 +165,27 @@ export function AdminSurveys() {
       console.error('Failed to fetch walls:', err)
     }
   }, [])
+
+  const fetchAttempts = async (surveyId: string) => {
+    try {
+      setAttemptsLoading(true)
+      const res = await fetch(`/api/admin/surveys/${surveyId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAttempts((data.attempts || []) as SurveyAttempt[])
+      }
+    } catch (err) {
+      console.error('Failed to fetch attempts:', err)
+    } finally {
+      setAttemptsLoading(false)
+    }
+  }
+
+  const openAttempts = (survey: Survey) => {
+    setAttemptsSurvey(survey)
+    setShowAttempts(true)
+    fetchAttempts(survey.id)
+  }
 
   useEffect(() => {
     fetchWalls()
@@ -226,6 +262,7 @@ export function AdminSurveys() {
   }
 
   const deleteSurvey = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this survey?')) return
     try {
       const res = await fetch(`/api/admin/surveys/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete survey')
@@ -251,35 +288,85 @@ export function AdminSurveys() {
 
   const totalPages = Math.ceil(total / limit)
 
+  const formatTime = (seconds: number | null) => {
+    if (!seconds) return '—'
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}m ${secs}s`
+  }
+
+  const timeAgo = (dateStr: string | null) => {
+    if (!dateStr) return '—'
+    const now = new Date()
+    const date = new Date(dateStr)
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMins / 60)
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return date.toLocaleDateString()
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-[20px] font-bold text-[#1A1A1A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
           Surveys Management
         </h2>
-        <Button
-          className="text-white text-[14px]"
-          style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-          onClick={openCreate}
-        >
-          <Plus size={16} className="mr-1" /> Add Survey
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-[13px]"
+            onClick={() => fetchSurveys()}
+          >
+            <RefreshCw size={14} className="mr-1" /> Refresh
+          </Button>
+          <Button
+            className="text-white text-[14px]"
+            style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
+            onClick={openCreate}
+          >
+            <Plus size={16} className="mr-1" /> Add Survey
+          </Button>
+        </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — from full database */}
       <div className="bg-white rounded-[12px] border border-[#E5E7EB] p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-[#F0FDF4] rounded-[10px] p-4">
-            <p className="text-[12px] text-[#16A34A] font-semibold mb-1">Active Surveys</p>
+            <div className="flex items-center gap-2 mb-1">
+              <ClipboardList size={14} className="text-[#16A34A]" />
+              <p className="text-[12px] text-[#16A34A] font-semibold">Active Surveys</p>
+            </div>
             <p className="text-[28px] font-bold text-[#1A1A1A]">{stats.activeSurveys.toLocaleString()}</p>
           </div>
           <div className="bg-[#EFF6FF] rounded-[10px] p-4">
-            <p className="text-[12px] text-[#2563EB] font-semibold mb-1">Total Completions</p>
+            <div className="flex items-center gap-2 mb-1">
+              <Users size={14} className="text-[#2563EB]" />
+              <p className="text-[12px] text-[#2563EB] font-semibold">Total Completions</p>
+            </div>
             <p className="text-[28px] font-bold text-[#1A1A1A]">{stats.totalCompletions.toLocaleString()}</p>
           </div>
           <div className="bg-[#FFF7ED] rounded-[10px] p-4">
-            <p className="text-[12px] text-[#D97706] font-semibold mb-1">Avg. Completion Rate</p>
-            <p className="text-[28px] font-bold text-[#1A1A1A]">{stats.avgCompletionRate}%</p>
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign size={14} className="text-[#D97706]" />
+              <p className="text-[12px] text-[#D97706] font-semibold">Total Revenue</p>
+            </div>
+            <p className="text-[28px] font-bold text-[#1A1A1A]">${(stats.totalRevenue || 0).toFixed(2)}</p>
+          </div>
+          <div className="bg-[#FDF2F8] rounded-[10px] p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign size={14} className="text-[#DB2777]" />
+              <p className="text-[12px] text-[#DB2777] font-semibold">Avg. per Completion</p>
+            </div>
+            <p className="text-[28px] font-bold text-[#1A1A1A]">
+              ${stats.totalCompletions > 0 ? ((stats.totalRevenue || 0) / stats.totalCompletions).toFixed(3) : '0.000'}
+            </p>
           </div>
         </div>
 
@@ -339,8 +426,9 @@ export function AdminSurveys() {
                     <TableHead className="text-[12px] text-[#999999]">Reward</TableHead>
                     <TableHead className="text-[12px] text-[#999999]">Time</TableHead>
                     <TableHead className="text-[12px] text-[#999999]">Completions</TableHead>
+                    <TableHead className="text-[12px] text-[#999999]">Attempts</TableHead>
                     <TableHead className="text-[12px] text-[#999999]">Status</TableHead>
-                    <TableHead className="w-[120px]" />
+                    <TableHead className="w-[150px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -355,7 +443,17 @@ export function AdminSurveys() {
                       <TableCell className="text-[12px] text-[#555555]">{survey.wall?.name || '—'}</TableCell>
                       <TableCell className="text-[13px] font-medium text-[#2DD9B6]">${survey.reward.toFixed(2)}</TableCell>
                       <TableCell className="text-[12px] text-[#555555]">{survey.timeMinutes} min</TableCell>
-                      <TableCell className="text-[12px] text-[#555555]">{survey.currentCompletions}{survey.maxCompletions > 0 ? `/${survey.maxCompletions}` : ''}</TableCell>
+                      <TableCell className="text-[12px] text-[#555555]">
+                        {survey.currentCompletions}{survey.maxCompletions > 0 ? `/${survey.maxCompletions}` : ''}
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          onClick={() => openAttempts(survey)}
+                          className="text-[12px] font-semibold text-[#2DD9B6] hover:underline cursor-pointer"
+                        >
+                          {survey.attemptCount || 0} views
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <Badge className={survey.isActive ? 'bg-[#ECFDF5] text-[#10B981] hover:bg-[#ECFDF5]' : 'bg-[#F5F5F5] text-[#999999] hover:bg-[#F5F5F5]'}>
                           {survey.isActive ? 'Active' : 'Inactive'}
@@ -363,6 +461,9 @@ export function AdminSurveys() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openAttempts(survey)} title="View attempts">
+                            <Eye size={14} className="text-[#2DD9B6]" />
+                          </Button>
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleActive(survey)}>
                             {survey.isActive ? <XCircle size={14} className="text-[#999999]" /> : <CheckCircle size={14} className="text-[#10B981]" />}
                           </Button>
@@ -400,6 +501,92 @@ export function AdminSurveys() {
           </>
         )}
       </div>
+
+      {/* Survey Attempts Dialog */}
+      <Dialog open={showAttempts} onOpenChange={setShowAttempts}>
+        <DialogContent className="max-w-[800px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[18px] font-bold" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
+              Survey Attempts — {attemptsSurvey?.title}
+            </DialogTitle>
+            {attemptsSurvey && (
+              <p className="text-[13px] text-[#999999] mt-1">
+                Wall: {attemptsSurvey.wall?.name || '—'} | Reward: ${attemptsSurvey.reward.toFixed(2)} | Completions: {attemptsSurvey.currentCompletions}
+              </p>
+            )}
+          </DialogHeader>
+
+          {attemptsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-[#2DD9B6]" />
+            </div>
+          ) : attempts.length === 0 ? (
+            <div className="text-center py-8 text-[#999999]">
+              <Users size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+              <p className="text-[14px]">No attempts yet for this survey</p>
+              <p className="text-[12px] mt-1">Attempts will appear here when users complete this survey</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-[#E5E7EB]">
+                    <TableHead className="text-[11px] text-[#999999]">User</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Status</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Reward</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Time Spent</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Speed</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Flagged</TableHead>
+                    <TableHead className="text-[11px] text-[#999999]">Completed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {attempts.map((attempt) => (
+                    <TableRow key={attempt.id} className="border-b border-[#F0F2F5]">
+                      <TableCell>
+                        <div>
+                          <p className="text-[12px] font-medium text-[#1A1A1A]">{attempt.user?.email || 'Unknown'}</p>
+                          <p className="text-[10px] text-[#999999]">ID: #{attempt.user?.userId || '—'}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          attempt.status === 'completed' ? 'bg-[#ECFDF5] text-[#10B981]' :
+                          attempt.status === 'flagged' ? 'bg-[#FEF2F2] text-[#EF4444]' :
+                          'bg-[#FFF7ED] text-[#D97706]'
+                        }>
+                          {attempt.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-[12px] font-medium text-[#2DD9B6]">
+                        ${attempt.reward.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-[12px] text-[#555555]">
+                        {formatTime(attempt.timeSpent)}
+                      </TableCell>
+                      <TableCell className="text-[12px] text-[#555555]">
+                        {attempt.completionSpeed ? `${(attempt.completionSpeed * 100).toFixed(0)}%` : '—'}
+                      </TableCell>
+                      <TableCell>
+                        {attempt.isFlagged ? (
+                          <Badge className="bg-[#FEF2F2] text-[#EF4444]">
+                            {attempt.flagReason || 'Yes'}
+                          </Badge>
+                        ) : (
+                          <span className="text-[12px] text-[#10B981]">No</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-[11px] text-[#999999]">
+                        {timeAgo(attempt.completedAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>

@@ -8,7 +8,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       where: { id },
       include: {
         wall: { select: { id: true, name: true, provider: true } },
-        attempts: { take: 20, orderBy: { startedAt: 'desc' } },
+        attempts: {
+          take: 50,
+          orderBy: { startedAt: 'desc' },
+          include: {
+            user: { select: { id: true, email: true, userId: true } },
+          },
+        },
+        _count: {
+          select: {
+            attempts: { where: { status: 'completed' } },
+          },
+        },
       },
     })
 
@@ -28,9 +39,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { id } = await params
     const body = await request.json()
 
+    // Only allow specific fields to be updated
+    const allowedFields = [
+      'wallId', 'externalId', 'title', 'description', 'timeMinutes', 'reward',
+      'rating', 'available', 'category', 'country', 'language', 'maxCompletions',
+      'isActive', 'startsAt', 'expiresAt',
+    ]
+    const data: Record<string, unknown> = {}
+    for (const key of allowedFields) {
+      if (body[key] !== undefined) {
+        data[key] = body[key]
+      }
+    }
+
     const survey = await db.survey.update({
       where: { id },
-      data: body,
+      data,
     })
 
     return NextResponse.json(survey)
