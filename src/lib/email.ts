@@ -349,6 +349,58 @@ export async function sendCashoutApprovedEmail(
   })
 }
 
+export async function sendSupportReplyEmail(
+  email: string,
+  name: string,
+  originalMessage: string,
+  adminReply: string,
+  repliedBy: string
+): Promise<boolean> {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://xoxosurveys.com'
+  const displayName = name || email.split('@')[0]
+  return sendEmail({
+    to: email,
+    subject: `Support Reply - XoXoSurveys`,
+    html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background-color:#f4f5f7;">
+  <div style="max-width:600px; margin:0 auto; padding:20px;">
+    <div style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+      ${getEmailHeader('XoXoSurveys', 'Support Reply')}
+      <div style="padding:32px 40px;">
+        <h2 style="color:#36383A; font-size:20px; margin:0 0 16px; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">Hi ${displayName},</h2>
+        <p style="color:#4B4B4B; font-size:15px; line-height:1.6; margin:0 0 16px;">We've replied to your support message. Here's the update:</p>
+
+        <div style="background:#f9fafb; border:1px solid #e2eaf1; border-radius:8px; padding:16px; margin:16px 0;">
+          <p style="margin:0 0 8px; color:#999; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Your Message</p>
+          <p style="margin:0; color:#4B4B4B; font-size:14px; line-height:1.6; white-space:pre-wrap; max-height:120px; overflow:hidden;">${originalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 300)}${originalMessage.length > 300 ? '...' : ''}</p>
+        </div>
+
+        <div style="background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:16px; margin:16px 0;">
+          <p style="margin:0 0 8px; color:#059669; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
+            <span style="display:inline-block; width:16px; height:16px; background:#059669; border-radius:50%; color:#fff; text-align:center; line-height:16px; font-size:10px;">&#10003;</span>
+            Reply from ${repliedBy}
+          </p>
+          <p style="margin:0; color:#36383A; font-size:14px; line-height:1.7; white-space:pre-wrap;">${adminReply.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+        </div>
+
+        <div style="text-align:center; margin-top:20px;">
+          <a href="${baseUrl}" style="display:inline-block; background:linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%); color:#ffffff !important; text-decoration:none; padding:14px 32px; border-radius:8px; font-size:16px; font-weight:600; text-align:center;">View in Dashboard</a>
+        </div>
+
+        <p style="color:#999; font-size:13px; margin-top:16px; text-align:center;">If you need further assistance, feel free to contact us again.</p>
+      </div>
+      ${getEmailFooter(`This email was sent to <strong>${email}</strong> because you received a reply to your support message on XoXoSurveys.`)}
+    </div>
+  </div>
+</body>
+</html>`,
+    text: `XoXoSurveys - Support Reply\n\nHi ${displayName},\n\nWe've replied to your support message:\n\nYour Message:\n${originalMessage.substring(0, 200)}${originalMessage.length > 200 ? '...' : ''}\n\nReply from ${repliedBy}:\n${adminReply}\n\nIf you need further assistance, feel free to contact us again.\n\n- XoXoSurveys Team`,
+  })
+}
+
 export async function sendCashoutRejectedEmail(
   email: string,
   amount: number,

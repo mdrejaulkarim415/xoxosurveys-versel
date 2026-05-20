@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { sendSupportReplyEmail } from '@/lib/email'
 
 // PATCH /api/admin/support/messages/[id] - Update message status or reply
 export async function PATCH(
@@ -11,7 +12,14 @@ export async function PATCH(
     const body = await request.json()
     const { status, adminReply, priority, repliedBy } = body
 
-    const existing = await db.supportMessage.findUnique({ where: { id } })
+    const existing = await db.supportMessage.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: { id: true, email: true, firstname: true, lastname: true },
+        },
+      },
+    })
     if (!existing) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 })
     }
@@ -56,6 +64,49 @@ export async function PATCH(
         },
       },
     })
+
+    // Send email notification to the user when admin replies
+    if (adminReply !== undefined && adminReply.trim()) {
+      const userEmail = updated.email
+      const userName = updated.name
+      const repliedByName = repliedBy || 'admin'
+
+      // Send email (non-blocking - don't wait for it to complete)
+      sendSupportReplyEmail(
+        userEmail,
+        userName,
+        updated.message,
+        adminReply.trim(),
+        repliedByName
+      ).then((emailSent) => {
+        if (emailSent) {
+          console.log(`[Admin Support] Reply email sent to ${userEmail}`)
+        } else {
+          console.warn(`[Admin Support] Failed to send reply email to ${userEmail}`)
+        }
+      }).catch((err) => {
+        console.error('[Admin Support] Email send error:', err)
+      })
+
+      // Create in-app notification if user is registered
+      if (updated.user?.id) {
+        try {
+          await db.notification.create({
+            data: {
+              userId: updated.user.id,
+              type: 'system',
+              title: 'Support Reply Received',
+              message: `Admin replied to your support message: "${adminReply.trim().substring(0, 80)}${adminReply.trim().length > 80 ? '...' : ''}"`,
+              iconType: 'info',
+            },
+          })
+          console.log(`[Admin Support] Notification created for user ${updated.user.id}`)
+        } catch (notifError) {
+          console.error('[Admin Support] Failed to create notification:', notifError)
+          // Don't fail the whole request if notification fails
+        }
+      }
+    }
 
     console.log(`[Admin Support] Updated message ${id}: status=${updated.status}`)
 
