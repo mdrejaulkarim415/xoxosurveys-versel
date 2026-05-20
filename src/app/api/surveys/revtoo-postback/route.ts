@@ -187,6 +187,65 @@ async function handlePostback(request: NextRequest) {
 
     console.log(`[Revtoo Postback] Success: User ${finalUserId} earned $${earnedAmount.toFixed(2)} for offer ${finalOfferId}`)
 
+    // Create notification for the user about the survey completion
+    // This is critical - log detailed errors if it fails
+    try {
+      const notification = await db.notification.create({
+        data: {
+          userId: user.id,
+          type: 'offer_complete',
+          title: 'Survey Completed!',
+          message: `You earned $${earnedAmount.toFixed(3)} from Revtoo${finalOfferId ? ` (Offer #${finalOfferId})` : ''}`,
+          iconType: 'reward',
+          offerwall: 'Revtoo',
+          rewardAmount: earnedAmount,
+          metadata: JSON.stringify({ provider: 'revtoo', offerId: finalOfferId, payout: finalPayout, reward: earnedAmount, transactionId: finalTransactionId }),
+        },
+      })
+      console.log(`[Revtoo Postback] Notification created successfully:`, notification.id)
+    } catch (notifError) {
+      // Log the FULL error so we can diagnose database issues
+      console.error(`[Revtoo Postback] *** NOTIFICATION CREATION FAILED ***`)
+      console.error(`[Revtoo Postback] Error details:`, notifError)
+      console.error(`[Revtoo Postback] This usually means the Notification table doesn't exist in the database.`)
+      console.error(`[Revtoo Postback] FIX: Run "npx prisma db push" to sync the schema with your Neon database.`)
+      // Don't fail the postback - the user still gets credited
+    }
+
+    // Referral: If user was invited, auto-credit referrer 10% commission
+    if (user.invitedBy) {
+      try {
+        const referrer = await db.user.findUnique({ where: { id: user.invitedBy } })
+        if (referrer && !referrer.isBanned) {
+          const referralAmount = Math.round(earnedAmount * 0.10 * 1000) / 1000
+          if (referralAmount > 0) {
+            await db.user.update({
+              where: { id: referrer.id },
+              data: {
+                balance: { increment: referralAmount },
+                totalEarned: { increment: referralAmount },
+                referralEarnings: { increment: referralAmount },
+              },
+            })
+            await db.referralEarning.create({
+              data: {
+                referrerId: referrer.id,
+                referredId: user.id,
+                referredEmail: user.email,
+                surveyReward: earnedAmount,
+                referralPercent: 0.10,
+                referralAmount,
+                status: 'claimed',
+                claimedAt: new Date(),
+              },
+            })
+          }
+        }
+      } catch (e) {
+        console.warn('[Revtoo Postback] Referral earning creation failed:', e)
+      }
+    }
+
     // Auto-trigger account review if user earned $4 or more
     try {
       await checkAndTriggerAutoReview(user.id)

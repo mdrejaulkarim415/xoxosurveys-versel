@@ -226,6 +226,12 @@ export function SurveysPage() {
           }))
           setLastBalance(newBalance)
           setSurveyOpened(false) // Stop polling after reward detected
+
+          // Dispatch event to refresh notifications immediately
+          // Include previousBalance so the dashboard can calculate the earned amount
+          window.dispatchEvent(new CustomEvent('xoxo-balance-changed', {
+            detail: { newBalance, totalEarned: data.totalEarned, previousBalance: lastBalance }
+          }))
         }
       }
     } catch {
