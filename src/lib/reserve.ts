@@ -60,12 +60,34 @@ export async function collectPendingReserve(
 }
 
 /**
- * Calculate the smooth reserve amount for a given withdrawal amount.
- * NEW formula: 40% of withdrawal (smooth, no step jumps)
- * OLD formula was: Math.floor(amount / 5) * 2 (step-based, gameable)
+ * Calculate the tiered reserve amount for a given withdrawal amount.
+ *
+ * Formula: Math.ceil(amount / 5) * 2
+ * - Every $5 step adds $2 reserve
+ * - $0.01-$5.00 → $2 reserve
+ * - $5.01-$10.00 → $4 reserve
+ * - $10.01-$15.00 → $6 reserve
+ * - $15.01-$20.00 → $8 reserve
+ * - etc.
+ *
+ * This prevents users from gaming the system by withdrawing just under $10
+ * to avoid a higher reserve step. Even $5.01 triggers the $4 reserve (same as $10).
+ *
+ * Quick buttons ($5, $10, $25, $50) reserves remain the same:
+ * - $5 → $2, $10 → $4, $25 → $10, $50 → $20
  */
 export function calculateReserve(withdrawalAmount: number): number {
-  return Math.round(withdrawalAmount * 0.4 * 100) / 100
+  if (withdrawalAmount <= 0) return 0
+  return Math.ceil(withdrawalAmount / 5) * 2
+}
+
+/**
+ * Get reserve tier information for a given amount
+ */
+export function getReserveTier(withdrawalAmount: number) {
+  if (withdrawalAmount <= 0) return { tier: 0, reserve: 0, upperBound: 0 }
+  const tier = Math.ceil(withdrawalAmount / 5)
+  return { tier, reserve: tier * 2, upperBound: tier * 5 }
 }
 
 /**

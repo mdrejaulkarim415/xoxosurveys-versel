@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { calculateReserve, calculateTotalDeduction, getReserveTier } from '@/lib/reserve'
 
 /**
  * POST /api/cashout - Create a new cashout request
  * Body: { userId, giftCardType, amount, paymentDetail }
  *
- * NEW Reserve Amount Logic (Progressive + Smooth):
- * - Reserve rate: 40% of withdrawal amount (smooth, no step jumps)
- * - reserveAmount = Math.round(amount * 0.4 * 100) / 100
- * - If user has enough balance: full reserve collected upfront
- * - If not enough for full reserve: minimum $2 upfront + rest becomes pendingReserve
- * - pendingReserve is collected from future survey earnings (40% of each earning)
+ * Tiered Reserve Amount Logic:
+ * - Formula: Math.ceil(amount / 5) * 2
+ * - Every $5 step adds $2 reserve
+ * - $0.01-$5.00 → $2 reserve
+ * - $5.01-$10.00 → $4 reserve
+ * - $10.01-$15.00 → $6 reserve
+ * - etc.
  *
  * This prevents users from gaming the system by withdrawing just under $10
- * to avoid the $4 reserve step-jump in the old formula.
+ * to avoid a higher reserve step. Even $5.01 triggers the $4 reserve.
  *
- * Old formula: Math.floor(amount / 5) * 2  (step-based, gameable)
- * New formula: Math.round(amount * 0.4 * 100) / 100  (smooth, continuous)
+ * Quick buttons ($5, $10, $25, $50) reserves:
+ * - $5 → $2, $10 → $4, $25 → $10, $50 → $20
  */
 export async function POST(request: NextRequest) {
   try {
@@ -39,10 +41,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // NEW: Calculate reserve amount with smooth formula (40% of withdrawal, no step jumps)
-    // This prevents gaming by withdrawing just under $10
-    const reserveAmount = Math.round(amountNum * 0.4 * 100) / 100
-    const totalDeduction = amountNum + reserveAmount
+    // Calculate reserve amount with tiered formula
+    const reserveAmount = calculateReserve(amountNum)
+    const totalDeduction = calculateTotalDeduction(amountNum)
+    const reserveTier = getReserveTier(amountNum)
 
     // Find user by cuid
     const user = await db.user.findUnique({
@@ -174,6 +176,7 @@ export async function POST(request: NextRequest) {
             giftCardType,
             amount: amountNum,
             reserveAmount,
+            reserveTier: reserveTier.tier,
             upfrontReserve,
             pendingReserve: pendingReserveAdd,
             totalDeduction: actualDeduction,
@@ -207,6 +210,7 @@ export async function POST(request: NextRequest) {
       newReservedBalance: cashout.newReservedBalance,
       newPendingReserve: cashout.newPendingReserve,
       reserveAmount,
+      reserveTier: reserveTier.tier,
       upfrontReserve,
       pendingReserve: pendingReserveAdd,
       totalDeduction: actualDeduction,

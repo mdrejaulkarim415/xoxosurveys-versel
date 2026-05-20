@@ -221,9 +221,12 @@ export function CashoutPage() {
   const [cashoutHistory, setCashoutHistory] = useState<CashoutRecord[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
 
-  // Reserve calculation helper - NEW smooth formula (40% of withdrawal, no step jumps)
+  // Reserve calculation helper - Tiered formula: every $5 step adds $2 reserve
+  // $0.01-$5.00 → $2 | $5.01-$10.00 → $4 | $10.01-$15.00 → $6 | etc.
+  // This prevents gaming by withdrawing just under thresholds
   const calculateReserve = (withdrawalAmount: number): number => {
-    return Math.round(withdrawalAmount * 0.4 * 100) / 100
+    if (withdrawalAmount <= 0) return 0
+    return Math.ceil(withdrawalAmount / 5) * 2
   }
 
   const calculateTotalDeduction = (withdrawalAmount: number): number => {
@@ -436,9 +439,10 @@ export function CashoutPage() {
           <div>
             <h3 className="text-[14px] font-bold text-[#92400E] mb-1">Reserve Amount Policy</h3>
             <p className="text-[13px] text-[#78350F]">
-              40% of your withdrawal is held in reserve. The reserve will be released by admin after approval.
-              Example: $5 withdraw requires $7 balance ($5 + $2 reserve). $10 withdraw requires $14 balance ($10 + $4 reserve).
-              There are no step jumps — every dollar counts proportionally.
+              A tiered reserve is held based on your withdrawal amount: $2 per $5 step.
+              $0.01-$5.00 requires $2 reserve. $5.01-$10.00 requires $4 reserve. $10.01-$15.00 requires $6 reserve, and so on.
+              The reserve will be released by admin after approval.
+              Example: $5 withdraw needs $7 balance ($5 + $2). $10 withdraw needs $14 balance ($10 + $4).
             </p>
           </div>
         </div>
