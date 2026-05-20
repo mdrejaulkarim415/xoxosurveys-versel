@@ -1,6 +1,42 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+/**
+ * Parse reward amount from ActivityLog details JSON
+ */
+function parseRewardFromDetails(details: string): number {
+  try {
+    const parsed = JSON.parse(details)
+    return parsed.reward || 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Get total revenue from external postback ActivityLog entries
+ */
+async function getExternalPostbackRevenue(): Promise<number> {
+  const logs = await db.activityLog.findMany({
+    where: { action: { in: ['provider_postback', 'revtoo_survey_complete'] } },
+    select: { details: true },
+  })
+  let total = 0
+  for (const log of logs) {
+    total += parseRewardFromDetails(log.details)
+  }
+  return total
+}
+
+/**
+ * Get count of external postback completions
+ */
+async function getExternalPostbackCount(): Promise<number> {
+  return db.activityLog.count({
+    where: { action: { in: ['provider_postback', 'revtoo_survey_complete'] } },
+  })
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -46,22 +82,19 @@ export async function GET(request: Request) {
     ])
 
     // Get real stats from the full database (not just current page)
-    const [activeSurveyCount, totalSurveyCompletions, completedAttempts] = await Promise.all([
+    // Include BOTH internal SurveyAttempt + external postback revenue
+    const [activeSurveyCount, internalCompletions, internalRewardAgg, externalCount, externalRevenue] = await Promise.all([
       db.survey.count({ where: { isActive: true } }),
       db.surveyAttempt.count({ where: { status: 'completed' } }),
-      db.surveyAttempt.count({ where: { status: 'completed' } }),
+      db.surveyAttempt.aggregate({ where: { status: 'completed' }, _sum: { reward: true } }),
+      getExternalPostbackCount(),
+      getExternalPostbackRevenue(),
     ])
-
-    // Get total reward earned from completed attempts
-    const rewardAgg = await db.surveyAttempt.aggregate({
-      where: { status: 'completed' },
-      _sum: { reward: true },
-    })
 
     const stats = {
       activeSurveys: activeSurveyCount,
-      totalCompletions: totalSurveyCompletions,
-      totalRevenue: rewardAgg._sum.reward || 0,
+      totalCompletions: internalCompletions + externalCount,
+      totalRevenue: (internalRewardAgg._sum.reward || 0) + externalRevenue,
     }
 
     // Map surveys to include attemptCount from _count

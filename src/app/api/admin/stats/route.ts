@@ -1,6 +1,61 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+/**
+ * Parse reward amount from ActivityLog details JSON.
+ * ActivityLog stores reward in details JSON like: { reward: 0.35, ... }
+ */
+function parseRewardFromDetails(details: string): number {
+  try {
+    const parsed = JSON.parse(details)
+    return parsed.reward || 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Get total revenue from external postback ActivityLog entries within a date range.
+ * External postbacks use actions: 'provider_postback' and 'revtoo_survey_complete'
+ */
+async function getExternalPostbackRevenue(startDate?: Date, endDate?: Date): Promise<number> {
+  const where: Record<string, unknown> = {
+    action: { in: ['provider_postback', 'revtoo_survey_complete'] },
+  }
+  if (startDate || endDate) {
+    where.createdAt = {}
+    if (startDate) (where.createdAt as Record<string, unknown>).gte = startDate
+    if (endDate) (where.createdAt as Record<string, unknown>).lt = endDate
+  }
+
+  const logs = await db.activityLog.findMany({
+    where,
+    select: { details: true },
+  })
+
+  let total = 0
+  for (const log of logs) {
+    total += parseRewardFromDetails(log.details)
+  }
+  return total
+}
+
+/**
+ * Get count of external postback completions within a date range.
+ */
+async function getExternalPostbackCount(startDate?: Date, endDate?: Date): Promise<number> {
+  const where: Record<string, unknown> = {
+    action: { in: ['provider_postback', 'revtoo_survey_complete'] },
+  }
+  if (startDate || endDate) {
+    where.createdAt = {}
+    if (startDate) (where.createdAt as Record<string, unknown>).gte = startDate
+    if (endDate) (where.createdAt as Record<string, unknown>).lt = endDate
+  }
+
+  return db.activityLog.count({ where })
+}
+
 export async function GET() {
   try {
     // ============ Core Stats ============
@@ -11,11 +66,18 @@ export async function GET() {
       where: { status: 'pending' },
       _sum: { amount: true },
     })
-    const totalRevenueAgg = await db.surveyAttempt.aggregate({
+
+    // Revenue from internal SurveyAttempt records
+    const internalRevenueAgg = await db.surveyAttempt.aggregate({
       where: { status: 'completed' },
       _sum: { reward: true },
     })
-    const totalRevenue = totalRevenueAgg._sum.reward || 0
+    const internalRevenue = internalRevenueAgg._sum.reward || 0
+
+    // Revenue from external postback ActivityLog entries (Revtoo, CPX, Bitlabs, etc.)
+    const externalRevenue = await getExternalPostbackRevenue()
+
+    const totalRevenue = internalRevenue + externalRevenue
     const pendingCashouts = pendingCashoutsAgg._sum.amount || 0
 
     // ============ Reserve Stats ============
@@ -37,17 +99,19 @@ export async function GET() {
     })
     const usersGrowth = usersLastMonth > 0 ? Number((((usersThisMonth - usersLastMonth) / usersLastMonth) * 100).toFixed(1)) : usersThisMonth > 0 ? 100 : 0
 
-    // Revenue growth
-    const revenueThisMonth = await db.surveyAttempt.aggregate({
+    // Revenue growth (internal + external)
+    const internalRevThisMonth = await db.surveyAttempt.aggregate({
       where: { status: 'completed', completedAt: { gte: thisMonthStart } },
       _sum: { reward: true },
     })
-    const revenueLastMonth = await db.surveyAttempt.aggregate({
+    const internalRevLastMonth = await db.surveyAttempt.aggregate({
       where: { status: 'completed', completedAt: { gte: lastMonthStart, lt: lastMonthEnd } },
       _sum: { reward: true },
     })
-    const revThis = revenueThisMonth._sum.reward || 0
-    const revLast = revenueLastMonth._sum.reward || 0
+    const externalRevThisMonth = await getExternalPostbackRevenue(thisMonthStart)
+    const externalRevLastMonth = await getExternalPostbackRevenue(lastMonthStart, lastMonthEnd)
+    const revThis = (internalRevThisMonth._sum.reward || 0) + externalRevThisMonth
+    const revLast = (internalRevLastMonth._sum.reward || 0) + externalRevLastMonth
     const revenueGrowth = revLast > 0 ? Number((((revThis - revLast) / revLast) * 100).toFixed(1)) : revThis > 0 ? 100 : 0
 
     // Active users growth
@@ -99,20 +163,28 @@ export async function GET() {
         where: { createdAt: { gte: monthDate, lt: monthEnd } },
       })
 
-      const monthRevenue = await db.surveyAttempt.aggregate({
+      // Internal survey revenue for this month
+      const monthInternalRevenue = await db.surveyAttempt.aggregate({
         where: { status: 'completed', completedAt: { gte: monthDate, lt: monthEnd } },
         _sum: { reward: true },
       })
 
-      const monthSurveys = await db.surveyAttempt.count({
+      // External postback revenue for this month
+      const monthExternalRevenue = await getExternalPostbackRevenue(monthDate, monthEnd)
+
+      // Internal survey completions for this month
+      const monthInternalSurveys = await db.surveyAttempt.count({
         where: { status: 'completed', completedAt: { gte: monthDate, lt: monthEnd } },
       })
+
+      // External postback completions for this month
+      const monthExternalSurveys = await getExternalPostbackCount(monthDate, monthEnd)
 
       userGrowth.push({
         name: label,
         users: monthUsers,
-        revenue: monthRevenue._sum.reward || 0,
-        surveys: monthSurveys,
+        revenue: (monthInternalRevenue._sum.reward || 0) + monthExternalRevenue,
+        surveys: monthInternalSurveys + monthExternalSurveys,
       })
     }
 
