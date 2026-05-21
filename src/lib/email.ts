@@ -1,6 +1,4 @@
 import nodemailer from 'nodemailer'
-import { readFileSync } from 'fs'
-import { join } from 'path'
 
 // ==================== SMTP Transport Configuration ====================
 
@@ -14,33 +12,10 @@ const transporter = nodemailer.createTransport({
   },
 })
 
-// ==================== Logo Base64 (loaded once) ====================
-
-let logoBase64: string | null = null
-
-function getLogoBase64(): string {
-  if (logoBase64) return logoBase64
-  try {
-    const logoPath = join(process.cwd(), 'public', 'logo.png')
-    const logoBuffer = readFileSync(logoPath)
-    logoBase64 = logoBuffer.toString('base64')
-    return logoBase64
-  } catch {
-    console.warn('[Email] Could not load logo.png for email embedding')
-    return ''
-  }
-}
-
-// Shared header HTML with logo - used by all email templates
+// Shared header HTML - text only, no PNG image attachment
 function getEmailHeader(title: string, subtitle?: string): string {
-  const logoData = getLogoBase64()
-  const logoImg = logoData
-    ? `<img src="cid:xoxosurveys-logo" alt="XoXoSurveys" style="width:48px; height:48px; border-radius:50%; margin-bottom:12px; display:block; margin-left:auto; margin-right:auto;" />`
-    : ''
-
   return `
   <div style="background: linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%); padding: 32px 40px; text-align: center;">
-    ${logoImg}
     <h1 style="margin:0; color:#ffffff; font-size:24px; font-weight:700; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">${title}</h1>
     ${subtitle ? `<p style="margin:8px 0 0; color:rgba(255,255,255,0.9); font-size:14px; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">${subtitle}</p>` : ''}
   </div>`
@@ -194,28 +169,13 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
 
     console.log(`[Email] Attempting to send to ${to} from ${fromEmail} via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`)
 
-    // Load logo as attachment for CID embedding
-    const logoPath = join(process.cwd(), 'public', 'logo.png')
-    let attachments: any[] = []
-    try {
-      const { readFileSync: rf } = await import('fs')
-      const logoBuffer = rf(logoPath)
-      attachments = [{
-        filename: 'logo.png',
-        content: logoBuffer,
-        cid: 'xoxosurveys-logo', // Same as in the HTML img src
-      }]
-    } catch {
-      console.warn('[Email] Could not attach logo.png - emails will be sent without logo image')
-    }
-
+    // No image attachments — emails are text/HTML only
     const result = await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to,
       subject,
       html,
       text,
-      attachments,
     })
 
     console.log(`[Email] Sent successfully to ${to}, messageId: ${result.messageId}`)
@@ -419,7 +379,6 @@ export async function sendCashoutRejectedEmail(
   <div style="max-width:600px; margin:0 auto; padding:20px;">
     <div style="background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.08);">
       <div style="background:linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%); padding:24px 32px; text-align:center;">
-        <img src="cid:xoxosurveys-logo" alt="XoXoSurveys" style="width:40px; height:40px; border-radius:50%; margin-bottom:8px;" />
         <h1 style="color:#fff; margin:0; font-size:20px;">Cashout Update</h1>
       </div>
       <div style="padding:24px 32px;">
