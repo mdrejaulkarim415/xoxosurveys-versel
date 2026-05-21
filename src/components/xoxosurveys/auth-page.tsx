@@ -84,6 +84,9 @@ export function AuthPage() {
         lastname: data.user.lastname || '',
         newsletter: data.user.newsletter || 'Yes',
         language: data.user.language || 'English (en)',
+        reservedBalance: data.user.reservedBalance || 0,
+        isUnderReview: data.user.isUnderReview || false,
+        reviewReason: data.user.reviewReason || null,
       })
 
       if (data.sessionToken) {
@@ -139,6 +142,9 @@ export function AuthPage() {
         lastname: data.user.lastname || '',
         newsletter: data.user.newsletter || 'Yes',
         language: data.user.language || 'English (en)',
+        reservedBalance: data.user.reservedBalance || 0,
+        isUnderReview: data.user.isUnderReview || false,
+        reviewReason: data.user.reviewReason || null,
       })
 
       if (data.sessionToken) {
