@@ -78,9 +78,18 @@ export async function GET(request: NextRequest) {
 
     // Get all relevant activity logs for the period and aggregate in code
     // (groupBy can't sum JSON fields, so we use findMany + manual aggregation)
+    // Include ALL survey/offer completion actions from all providers:
+    // - survey_complete: internal survey completion
+    // - provider_postback: generic callback (CPX, Bitlabs, Inbrain, etc.)
+    // - revtoo_survey_complete: Revtoo-specific postback
+    const SURVEY_ACTIONS = [
+      'survey_complete',
+      'provider_postback',
+      'revtoo_survey_complete',
+    ]
     const activities = await db.activityLog.findMany({
       where: {
-        action: { in: ['survey_complete', 'provider_postback'] },
+        action: { in: SURVEY_ACTIONS },
         createdAt: { gte: startDate },
       },
       select: {
