@@ -262,7 +262,7 @@ export function LeaderboardPage() {
                     {getInitial(top3[1])}
                   </div>
                   <p className="text-[16px] font-bold text-[#36383A]">{getDisplayName(top3[1])}</p>
-                  <p className="text-[13px] text-[#999999] mb-2">ID: #{top3[1].numericUserId}</p>
+                  <p className="text-[13px] text-[#999999] mb-2">{top3[1].offers} offers completed</p>
                   <div className="inline-flex items-center gap-1.5 bg-[#F5F5F5] px-4 py-1.5 rounded-full">
                     <p className="text-[20px] font-bold text-[#0FBCC0]">${top3[1].earnings.toFixed(2)}</p>
                   </div>
@@ -286,7 +286,7 @@ export function LeaderboardPage() {
                     {getInitial(top3[0])}
                   </div>
                   <p className="text-[18px] font-bold text-[#36383A]">{getDisplayName(top3[0])}</p>
-                  <p className="text-[13px] text-[#999999] mb-2">ID: #{top3[0].numericUserId}</p>
+                  <p className="text-[13px] text-[#999999] mb-2">{top3[0].offers} offers completed</p>
                   <div className="inline-flex items-center gap-1.5 bg-[#0FBCC0]/10 px-4 py-2 rounded-full">
                     <p className="text-[26px] font-bold text-[#0FBCC0]">${top3[0].earnings.toFixed(2)}</p>
                   </div>
@@ -310,7 +310,7 @@ export function LeaderboardPage() {
                     {getInitial(top3[2])}
                   </div>
                   <p className="text-[16px] font-bold text-[#36383A]">{getDisplayName(top3[2])}</p>
-                  <p className="text-[13px] text-[#999999] mb-2">ID: #{top3[2].numericUserId}</p>
+                  <p className="text-[13px] text-[#999999] mb-2">{top3[2].offers} offers completed</p>
                   <div className="inline-flex items-center gap-1.5 bg-[#F5F5F5] px-4 py-1.5 rounded-full">
                     <p className="text-[20px] font-bold text-[#0FBCC0]">${top3[2].earnings.toFixed(2)}</p>
                   </div>
@@ -406,7 +406,7 @@ export function LeaderboardPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[12px] text-[#999999]">ID: #{user.numericUserId}</p>
+                        <p className="text-[12px] text-[#999999]">{user.offers} offers completed</p>
                       </div>
 
                       {/* Earnings */}
