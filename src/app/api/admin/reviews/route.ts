@@ -162,18 +162,21 @@ export async function POST(request: NextRequest) {
     const vpnIps = ips.filter(ip => ip.isVpn || ip.isProxy || ip.isTor)
     const vpnDetected = vpnIps.length > 0
 
-    // Check duplicate accounts
+    // Check duplicate accounts — skip if no IP data available
     let duplicateAccounts = 0
     if (user.id) {
       try {
-        const dupCheck = await antiFraudEngine.checkDuplicateAccount({
-          ipAddress: ips[0]?.ipAddress || '',
-          deviceFingerprint: sessions[0]?.deviceFingerprint || undefined,
-          currentUserEmail: user.id,
-        })
-        duplicateAccounts = dupCheck.matchingUsers.length
+        const firstIp = ips[0]?.ipAddress
+        if (firstIp) {
+          const dupCheck = await antiFraudEngine.checkDuplicateAccount({
+            ipAddress: firstIp,
+            deviceFingerprint: sessions[0]?.deviceFingerprint || undefined,
+            currentUserEmail: user.id,
+          })
+          duplicateAccounts = dupCheck.matchingUsers.length
+        }
       } catch {
-        // ignore
+        // ignore duplicate check errors
       }
     }
 
