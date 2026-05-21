@@ -25,15 +25,6 @@ interface NotificationItem {
   createdAt: string
 }
 
-// Toast notification for immediate feedback
-interface ToastNotification {
-  id: string
-  title: string
-  message: string
-  rewardAmount?: number
-  offerwall?: string
-}
-
 const sidebarItems = [
   { id: 'surveys' as const, label: 'Surveys', icon: 'survey' },
   { id: 'cashout' as const, label: 'Cashout', icon: 'cashout' },
@@ -116,7 +107,7 @@ function SidebarIcon({ type, active }: { type: string; active: boolean }) {
 }
 
 export function DashboardLayout() {
-  const { state, setCurrentPage, logout, refreshUser } = useApp()
+  const { state, setState, setCurrentPage, logout, refreshUser } = useApp()
   const telegramUsername = useTelegramUsername()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -129,16 +120,9 @@ export function DashboardLayout() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [markingRead, setMarkingRead] = useState(false)
-  const [toastNotif, setToastNotif] = useState<ToastNotification | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
   const isUnderReview = state.user.isUnderReview && state.user.role !== 'admin'
-
-  // Show toast notification with auto-dismiss
-  const showToast = useCallback((toast: ToastNotification) => {
-    setToastNotif(toast)
-    setTimeout(() => setToastNotif(null), 5000) // Auto-dismiss after 5 seconds
-  }, [])
 
   // Review overlay contact form state
   const [showReviewContact, setShowReviewContact] = useState(false)
@@ -192,42 +176,21 @@ export function DashboardLayout() {
     }
   }
 
-  // Fetch notifications - with improved error handling and toast trigger
-  const fetchNotifications = useCallback(async (showRewardToast = false) => {
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
     try {
       const userId = localStorage.getItem('userId')
       if (!userId) return
       const res = await fetch(`/api/notifications?userId=${userId}`)
       if (res.ok) {
         const data = await res.json()
-        const newNotifications = data.notifications || []
-        const newUnreadCount = data.unreadCount || 0
-
-        // If this was triggered by a balance change (survey completion),
-        // check if there's a new notification we haven't seen yet
-        if (showRewardToast && newNotifications.length > 0) {
-          const latestNotif = newNotifications[0]
-          if (latestNotif && !latestNotif.isRead && (latestNotif.type === 'offer_complete' || latestNotif.type === 'survey_complete')) {
-            // Show a toast popup for the new reward
-            showToast({
-              id: latestNotif.id,
-              title: latestNotif.title,
-              message: latestNotif.message,
-              rewardAmount: latestNotif.rewardAmount ?? undefined,
-              offerwall: latestNotif.offerwall ?? undefined,
-            })
-          }
-        }
-
-        setNotifications(newNotifications)
-        setUnreadCount(newUnreadCount)
-      } else {
-        console.warn('[Notifications] Fetch failed with status:', res.status)
+        setNotifications(data.notifications || [])
+        setUnreadCount(data.unreadCount || 0)
       }
     } catch (e) {
-      console.warn('[Notifications] Fetch error:', e)
+      console.warn('Failed to fetch notifications:', e)
     }
-  }, [showToast])
+  }, [])
 
   // Mark all as read
   const markAllAsRead = async () => {
@@ -278,51 +241,66 @@ export function DashboardLayout() {
     }
   }, [])
 
+  // Fast review-status check — polls every 5 seconds so that when
+  // an admin puts the account under review, the user sees the overlay
+  // immediately without needing to log out and back in.
+  const checkReviewStatus = useCallback(async () => {
+    const userId = localStorage.getItem('userId')
+    if (!userId) return
+    try {
+      const res = await fetch(`/api/user/review-status?userId=${userId}`)
+      if (res.ok) {
+        const data = await res.json()
+        // If the user got banned, force logout immediately
+        if (data.isBanned) {
+          logout()
+          return
+        }
+        // Update review status in app state right away
+        setState(prev => {
+          // Only trigger a re-render if the value actually changed
+          if (prev.user.isUnderReview === data.isUnderReview && prev.user.reviewReason === data.reviewReason) {
+            return prev
+          }
+          return {
+            ...prev,
+            user: {
+              ...prev.user,
+              isUnderReview: data.isUnderReview,
+              reviewReason: data.reviewReason,
+            },
+          }
+        })
+      }
+    } catch {
+      // Silently fail — the 30-second full refresh is the fallback
+    }
+  }, [setState, logout])
+
   // Refresh user data and notifications periodically
   useEffect(() => {
     // Initial refresh
     refreshUser()
     fetchNotifications()
     fetchBanner()
+    checkReviewStatus()
 
-    // Refresh every 10 seconds for faster notification delivery
+    // Fast review check every 5 seconds
+    const reviewInterval = setInterval(() => {
+      checkReviewStatus()
+    }, 5000)
+
+    // Refresh every 30 seconds
     const interval = setInterval(() => {
       refreshUser()
       fetchNotifications()
-    }, 10000)
+    }, 30000)
     // Refresh banner every 2 minutes
     const bannerInterval = setInterval(() => {
       fetchBanner()
     }, 120000)
-
-    // Listen for instant notification refresh when balance changes (from survey completion)
-    // Also show a toast popup for the reward
-    const handleBalanceChanged = (event: Event) => {
-      const customEvent = event as CustomEvent
-      const detail = customEvent?.detail
-      // Immediately show toast with balance change info
-      if (detail?.newBalance && detail?.totalEarned) {
-        const earned = detail.newBalance - (detail.previousBalance || 0)
-        if (earned > 0) {
-          showToast({
-            id: `balance-${Date.now()}`,
-            title: 'Reward Received!',
-            message: `+$${earned.toFixed(3)} has been credited to your account`,
-            rewardAmount: earned,
-          })
-        }
-      }
-      // Also fetch server notifications (with toast for new ones)
-      fetchNotifications(true)
-    }
-    window.addEventListener('xoxo-balance-changed', handleBalanceChanged)
-
-    return () => {
-      clearInterval(interval)
-      clearInterval(bannerInterval)
-      window.removeEventListener('xoxo-balance-changed', handleBalanceChanged)
-    }
-  }, [refreshUser, fetchNotifications, fetchBanner])
+    return () => { clearInterval(reviewInterval); clearInterval(interval); clearInterval(bannerInterval) }
+  }, [refreshUser, fetchNotifications, fetchBanner, checkReviewStatus])
 
   // Helper: time ago
   const timeAgo = (dateStr: string) => {
@@ -420,69 +398,6 @@ export function DashboardLayout() {
     <div className="min-h-screen bg-[#F9FAFB]">
       {/* Anti-fraud fingerprint collector (invisible) */}
       <FingerprintCollector />
-
-      {/* Toast Notification Popup - shows immediately when survey is completed */}
-      {toastNotif && (
-        <div
-          className="fixed top-4 right-4 z-[70] animate-in slide-in-from-right duration-300"
-          style={{ maxWidth: '360px' }}
-        >
-          <div
-            className="bg-white rounded-[14px] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.15)] border border-[#0FBCC0]/30 overflow-hidden"
-            style={{ animation: 'slideInRight 0.4s ease-out' }}
-          >
-            {/* Green gradient top bar */}
-            <div
-              className="h-[3px]"
-              style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-            />
-            <div className="p-4">
-              <div className="flex items-start gap-3">
-                {/* Icon */}
-                <div
-                  className="w-[40px] h-[40px] rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'linear-gradient(270deg, #2DD9B6 19.17%, #22B9CF 86.28%)' }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="1" x2="12" y2="23" />
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                  </svg>
-                </div>
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[14px] font-bold text-[#36383A]" style={{ fontFamily: 'var(--font-outfit), sans-serif' }}>
-                      {toastNotif.title}
-                    </p>
-                    <button
-                      onClick={() => setToastNotif(null)}
-                      className="text-[#999] hover:text-[#666] transition-colors flex-shrink-0"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </div>
-                  <p className="text-[12px] text-[#666] mt-0.5">{toastNotif.message}</p>
-                  <div className="flex items-center gap-2 mt-2">
-                    {toastNotif.rewardAmount != null && toastNotif.rewardAmount > 0 && (
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#E8F5E9] text-[#2E7D32]">
-                        +${toastNotif.rewardAmount.toFixed(3)}
-                      </span>
-                    )}
-                    {toastNotif.offerwall && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F0FDFB] text-[#0FBCC0] border border-[#0FBCC0]/20">
-                        {toastNotif.offerwall}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Account Under Review Banner */}
       {isUnderReview && (
