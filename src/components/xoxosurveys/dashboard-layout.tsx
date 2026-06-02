@@ -107,7 +107,7 @@ function SidebarIcon({ type, active }: { type: string; active: boolean }) {
 }
 
 export function DashboardLayout() {
-  const { state, setState, setCurrentPage, logout, refreshUser } = useApp()
+  const { state, setCurrentPage, logout, refreshUser } = useApp()
   const telegramUsername = useTelegramUsername()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -241,54 +241,12 @@ export function DashboardLayout() {
     }
   }, [])
 
-  // Fast review-status check — polls every 5 seconds so that when
-  // an admin puts the account under review, the user sees the overlay
-  // immediately without needing to log out and back in.
-  const checkReviewStatus = useCallback(async () => {
-    const userId = localStorage.getItem('userId')
-    if (!userId) return
-    try {
-      const res = await fetch(`/api/user/review-status?userId=${userId}`)
-      if (res.ok) {
-        const data = await res.json()
-        // If the user got banned, force logout immediately
-        if (data.isBanned) {
-          logout()
-          return
-        }
-        // Update review status in app state right away
-        setState(prev => {
-          // Only trigger a re-render if the value actually changed
-          if (prev.user.isUnderReview === data.isUnderReview && prev.user.reviewReason === data.reviewReason) {
-            return prev
-          }
-          return {
-            ...prev,
-            user: {
-              ...prev.user,
-              isUnderReview: data.isUnderReview,
-              reviewReason: data.reviewReason,
-            },
-          }
-        })
-      }
-    } catch {
-      // Silently fail — the 30-second full refresh is the fallback
-    }
-  }, [setState, logout])
-
   // Refresh user data and notifications periodically
   useEffect(() => {
     // Initial refresh
     refreshUser()
     fetchNotifications()
     fetchBanner()
-    checkReviewStatus()
-
-    // Fast review check every 5 seconds
-    const reviewInterval = setInterval(() => {
-      checkReviewStatus()
-    }, 5000)
 
     // Refresh every 30 seconds
     const interval = setInterval(() => {
@@ -299,8 +257,8 @@ export function DashboardLayout() {
     const bannerInterval = setInterval(() => {
       fetchBanner()
     }, 120000)
-    return () => { clearInterval(reviewInterval); clearInterval(interval); clearInterval(bannerInterval) }
-  }, [refreshUser, fetchNotifications, fetchBanner, checkReviewStatus])
+    return () => { clearInterval(interval); clearInterval(bannerInterval) }
+  }, [refreshUser, fetchNotifications, fetchBanner])
 
   // Helper: time ago
   const timeAgo = (dateStr: string) => {
