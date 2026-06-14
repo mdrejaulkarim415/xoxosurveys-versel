@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { antiFraudEngine } from '@/lib/anti-fraud'
 import { checkAndTriggerAutoReview } from '@/lib/account-review'
-import { collectPendingReserve } from '@/lib/reserve'
 
 export async function POST(request: NextRequest) {
   try {
@@ -244,13 +243,12 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 12. Update user balance (only if not flagged) — with pending reserve collection
+    // 12. Update user balance (only if not flagged)
     if (!isFlagged) {
-      const { reserveCollected, balanceCredited } = await collectPendingReserve(userId, finalReward)
       await db.user.update({
         where: { id: userId },
         data: {
-          balance: { increment: balanceCredited },
+          balance: { increment: finalReward },
           totalEarned: { increment: finalReward },
           surveysCompleted: { increment: 1 },
         },
@@ -342,13 +340,11 @@ export async function POST(request: NextRequest) {
       city: ipResult.city,
     })
 
-    // 16. Auto-trigger account review if user earned $4 or more
-    if (!isFlagged) {
-      try {
-        await checkAndTriggerAutoReview(userId)
-      } catch (e) {
-        console.warn('[Survey Complete] Auto-review check failed:', e)
-      }
+    // 16. Auto-trigger account review if user earned $4 or more (always, regardless of flagged status)
+    try {
+      await checkAndTriggerAutoReview(userId)
+    } catch (e) {
+      console.warn('[Survey Complete] Auto-review check failed:', e)
     }
 
     // 17. Create notification for the user about the survey completion
@@ -360,19 +356,15 @@ export async function POST(request: NextRequest) {
             userId,
             type: 'survey_complete',
             title: 'Survey Completed!',
-            message: `You earned $${finalReward.toFixed(2)} from ${offerwallLabel}`,
+            message: `You earned $${finalReward.toFixed(3)} from ${offerwallLabel}`,
             iconType: 'reward',
             offerwall: offerwallLabel,
             rewardAmount: finalReward,
             metadata: JSON.stringify({ surveyId, reward: finalReward, timeSpent }),
           },
         })
-        console.log(`[Survey Complete] Notification created for user ${userId}`)
-      } catch (e: any) {
-        console.warn('[Survey Complete] Notification creation failed:', e?.code || e?.message || e)
-        if (e?.code === 'P2021') {
-          console.error('[Survey Complete] CRITICAL: Notification table does not exist! Run: npx prisma db push')
-        }
+      } catch (e) {
+        console.warn('[Survey Complete] Notification creation failed:', e)
       }
     }
 

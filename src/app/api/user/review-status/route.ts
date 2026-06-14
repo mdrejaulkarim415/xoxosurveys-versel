@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
     let user: { isUnderReview: boolean; reviewReason: string | null; isBanned: boolean } | null = null
 
     if (isNaN(Number(userIdParam))) {
-      // Non-numeric = cuid id
       user = await db.user.findUnique({
         where: { id: userIdParam },
         select: { isUnderReview: true, reviewReason: true, isBanned: true },
